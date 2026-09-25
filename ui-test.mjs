@@ -47,9 +47,20 @@ try {
   await page.locator("#task-location").fill("图书馆 · 三层");
   await page.locator("#starts-at").fill("2026-10-01T10:00"); await page.locator("#ends-at").fill("2026-10-08T18:00");
   await addTodo(page.locator("#task-todos"), "读论文"); await addTodo(page.locator("#task-todos"), "整理笔记");
+  await page.locator("#add-link").click();
+  await page.getByRole("textbox",{name:"链接名称",exact:true}).fill("课程参考资料");
+  await page.getByRole("textbox",{name:"链接地址",exact:true}).fill("https://example.com/course-notes");
+  const png=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jJb8AAAAASUVORK5CYII=","base64");
+  await page.locator("#attachment-input").setInputFiles([{name:"示例图片.png",mimeType:"image/png",buffer:png},{name:"阅读材料.docx",mimeType:"application/vnd.openxmlformats-officedocument.wordprocessingml.document",buffer:Buffer.from("PK-test-download")}]);
+  await page.waitForFunction(()=>document.getElementById("upload-state").textContent.includes("上传完成"));
   await page.locator("#save-task").click(); await page.locator("#task-dialog").waitFor({state: "hidden"});
   const card = page.locator("article.task").first(); await card.waitFor();
   assert.equal(await card.locator(".badge").textContent(), "科研");
+  assert.equal(await card.getByRole("link",{name:"课程参考资料 ↗"}).getAttribute("href"),"https://example.com/course-notes");
+  const fileURL=await card.getByRole("link",{name:"打开附件：示例图片.png"}).getAttribute("href");
+  const preview=await desktop.newPage(); await preview.goto(origin+fileURL);
+  assert.equal(await preview.locator("img").evaluate(image=>image.complete && image.naturalWidth===1),true); await preview.close();
+  const fileResponse=await desktop.request.get(origin+fileURL);assert.deepEqual(await fileResponse.body(),png);
   await saved(page, () => addTodo(card, "补充参考资料"));
   await card.getByRole("button", {name: "编辑待办：读论文", exact: true}).click();
   await card.getByRole("textbox", {name: "编辑待办事项"}).fill("读论文并标注");
@@ -67,6 +78,10 @@ try {
   const mobile = await browser.newContext({viewport: {width: 390, height: 844}, isMobile: true, hasTouch: true, deviceScaleFactor: 2});
   const phone = await mobile.newPage(); phone.on("pageerror", error => errors.push(error.message));
   await login(phone); await category(phone, "科研").click();
+  assert.equal(await phone.locator(".brand-icon svg").count(),2);
+  const alignment=await phone.locator(".brand .brand-icon").evaluate(icon=>{const box=icon.getBoundingClientRect(),svg=icon.querySelector("svg").getBoundingClientRect();return Math.abs(box.top+box.height/2-svg.top-svg.height/2)<1 && Math.abs(box.left+box.width/2-svg.left-svg.width/2)<1;});assert.equal(alignment,true);
+  assert.deepEqual(await (await mobile.request.get(origin+fileURL)).body(),png);
+  assert.ok(await phone.getByRole("link",{name:"课程参考资料 ↗"}).isVisible());
   const mobileCard = phone.locator("article.task").first();
   assert.deepEqual(await mobileCard.locator(".todo-text").allTextContents(), ["读论文并标注", "整理笔记"]);
   await mobileCard.scrollIntoViewIfNeeded();
@@ -119,11 +134,13 @@ try {
   await phone.locator("#sync-state").click(); await category(phone, "全部任务").click();
   await phone.locator("article.task").filter({hasText: "数据结构"}).waitFor(); await phone.evaluate(() => scrollTo(0,0));
   await phone.screenshot({path:"data/screenshots/mobile.png",fullPage:true});
+  await phone.screenshot({path:"data/screenshots/mobile-top.png"});
+  for(const width of [320,375,430,768]) { await phone.setViewportSize({width,height:844});assert.equal(await phone.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`overflow at ${width}px`); }
   await category(page, "活动").click(); await page.locator("#add-task").click();
   assert.equal(await page.locator("#dialog-title").textContent(), "添加活动");
   await page.screenshot({path:"data/screenshots/form.png"});
   assert.deepEqual(errors, []);
-  console.log("PASS: category inheritance, required title, location, detail/card todo CRUD, mouse/touch/keyboard sorting, two browser sessions, conflict draft retention, 390px layout. Screenshots: data/screenshots/ (synthetic data only).");
+  console.log("PASS: category inheritance, required title, location, detail/card todo CRUD, mouse/touch/keyboard sorting, two browser sessions, conflict draft retention, 320–768px layouts, SVG alignment, attachment upload/preview/download and shared links. Screenshots: data/screenshots/ (synthetic data only).");
 } finally {
   await browser?.close(); server.closeAllConnections(); await new Promise(resolve=>server.close(resolve)); database.close();
   await rm(directory, {recursive:true,force:true});

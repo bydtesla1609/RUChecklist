@@ -4,7 +4,7 @@
   const allowed=url=>source==="smartestu" ? /\/api\/homework\/student\/mark\/queryHomeworks(?:\?|$)/.test(url) : /\/(?:FutureV2\/CourseMeans\/getCourseContent|Futurev2\/Homework\/getListByCourseToStudent)(?:\?|$)/i.test(url);
   function publish(url,value) {
     try {
-      const tasks=CampusParsers.parse(source,url,value);
+      const tasks=CampusParsers.parse(source,url,value,location.href);
       if(tasks) window.postMessage({kind:"campus-assignments-v1",source,tasks},location.origin);
     } catch(error) { window.postMessage({kind:"campus-assignments-v1",source,tasks:[],error:error.message},location.origin); }
   }

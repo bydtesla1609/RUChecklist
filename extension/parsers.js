@@ -9,7 +9,7 @@ globalThis.CampusParsers = (() => {
       const n=Number(value); parsed=new Date(n<1e12 ? n*1000:n);
     } else if(typeof value==="string") {
       let text=value.trim().replaceAll("/","-").replace(" ","T");
-      if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(text)) text+="+08:00";
+      if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(?:\.\d{1,3})?)?$/.test(text)) text+="+08:00";
       if(!/(Z|[+-]\d{2}:\d{2})$/.test(text)) throw new Error("无法确认作业截止时间，请人工核对");
       parsed=new Date(text);
     }
@@ -21,7 +21,7 @@ globalThis.CampusParsers = (() => {
     visit(value);
     for(const child of Object.values(value)) if(child && typeof child==="object") walk(child,visit,depth+1);
   }
-  function parse(source,url,value) {
+  function parse(source,url,value,pageURL="") {
     const output=new Map(); let recognized=false;
     if(source==="smartestu" && /\/api\/homework\/student\/mark\/queryHomeworks(?:\?|$)/.test(url)) {
       walk(value,course=>{
@@ -33,7 +33,7 @@ globalThis.CampusParsers = (() => {
           if(!task || task.scene==="online_exam") continue;
           if(task.id===undefined || typeof task.name!=="string") throw new Error("SmartEstu 作业字段发生变化");
           const item={external_id:`${course.courseId || ""}:${task.id}`,content:task.name,
-            due_at:date(task.personalLateDeadlineAt || task.endTime),course:String(course.courseName || "")};
+            due_at:date(task.personalLateDeadlineAt || task.endTime),course:String(course.courseName || ""),source_url:"https://smartestu.cn/assignment?tab=assignments"};
           output.set(item.external_id,item);
         }
       });
@@ -44,7 +44,12 @@ globalThis.CampusParsers = (() => {
         if(String(task.contenttype)!=="4" && !(homeworkOnly && task.title && Object.hasOwn(task,"endtime"))) return;
         if(typeof task.title!=="string" || (task.id===undefined && task.homeworkid===undefined)) throw new Error("课堂派作业字段发生变化");
         recognized=true;
-        const item={external_id:String(task.homeworkid || task.id),content:task.title,due_at:date(task.endtime),course:String(task.coursename || "")};
+        let pageCourse="";
+        try { pageCourse=new URLSearchParams(new URL(pageURL).hash.split("?")[1] || "").get("courseid") || ""; } catch {}
+        const id=String(task.homeworkid || task.id),course=task.courseid || pageCourse;
+        // Route verified in the platform's public frontend bundle, 2026-09-25.
+        const source_url=course ? `https://www.ketangpai.com/#/homework?${new URLSearchParams({courseid:String(course),courserole:"0",homeworkId:id})}` : "https://www.ketangpai.com/";
+        const item={external_id:id,content:task.title,due_at:date(task.endtime),course:String(task.coursename || ""),source_url};
         output.set(item.external_id,item);
       });
     }

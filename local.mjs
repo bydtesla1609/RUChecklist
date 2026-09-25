@@ -9,7 +9,7 @@ import worker, {digest} from "./worker.mjs";
 const root=dirname(fileURLToPath(import.meta.url));
 export function sqliteBinding(database) {
   const wrap=(sql,args=[])=>({
-    bind(...params){return wrap(sql,params);},
+    bind(...params){return wrap(sql,params.map(value=>value instanceof ArrayBuffer ? new Uint8Array(value) : value));},
     async first(){return database.prepare(sql).get(...args) || null;},
     async all(){return {results:database.prepare(sql).all(...args)};},
     async run(){const result=database.prepare(sql).run(...args);return {meta:{changes:Number(result.changes)}};},
@@ -30,11 +30,16 @@ export function sqliteBinding(database) {
 export async function createEnvironment(dataDir, password) {
   await mkdir(dataDir,{recursive:true});
   const database=new DatabaseSync(join(dataDir,"board.sqlite3"));
-  database.exec("PRAGMA journal_mode=WAL;");
+  database.exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;");
   database.exec(await readFile(join(root,"schema.sql"),"utf8"));
   if(!database.prepare("PRAGMA table_info(tasks)").all().some(column=>column.name==="title")) {
     database.exec("BEGIN");
     try { database.exec(await readFile(join(root,"migrations/0002_task_details.sql"),"utf8")); database.exec("COMMIT"); }
+    catch(error) { database.exec("ROLLBACK"); database.close(); throw error; }
+  }
+  if(!database.prepare("PRAGMA table_info(tasks)").all().some(column=>column.name==="links")) {
+    database.exec("BEGIN");
+    try { database.exec(await readFile(join(root,"migrations/0003_resources.sql"),"utf8")); database.exec("COMMIT"); }
     catch(error) { database.exec("ROLLBACK"); database.close(); throw error; }
   }
   const keyFile=join(dataDir,"access-code.txt");

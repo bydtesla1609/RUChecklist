@@ -4,6 +4,7 @@ const CATEGORIES = ["作业", "科研", "竞赛", "活动", "组织"];
 const STATES = {todo: "待开始", doing: "进行中", done: "已完成"};
 let tasks = [], sources = [], categoryFilter = "全部", editing = null, deleting = null;
 let refreshSequence = 0, lastPayload = "", toastTimer, taskCategory = "作业", draftTodos = [];
+let draftAttachments = [], uploading = false;
 
 function element(tag, text, className) {
   const node = document.createElement(tag);
@@ -45,6 +46,60 @@ function localInput(value) {
 }
 function inputTime(value) { return value ? new Date(`${value}:00+08:00`).toISOString() : null; }
 function deadline(task) { return task.category === "作业" ? task.due_at : task.ends_at; }
+function fileSize(size) { return size === 0 ? "0 KB" : size >= 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.ceil(size / 1024))} KB`; }
+function externalLink(label, url) {
+  const link = element("a", label); link.href = url; link.target = "_blank"; link.rel = "noopener noreferrer"; return link;
+}
+function fileRow(file, removable = false) {
+  const row = element("div", null, "resource-row");
+  const suffix = file.name.split(".").pop().slice(0, 5).toUpperCase();
+  row.append(element("span", suffix || "FILE", "resource-kind"));
+  if (file.pending) { const name=element("span", file.name); name.append(element("small", `${fileSize(file.size)} · 保存任务后可打开`)); row.append(name); }
+  else {
+    const link=externalLink(file.name, `/api/files/${file.id}`); link.setAttribute("aria-label", `打开附件：${file.name}`);
+    link.append(element("small", fileSize(file.size))); row.append(link);
+    const download=externalLink("下载", `/api/files/${file.id}?download=1`); download.className="file-download"; download.setAttribute("aria-label", `下载附件：${file.name}`); row.append(download);
+  }
+  if (removable) {
+    const remove=element("button", "×"); remove.type="button"; remove.setAttribute("aria-label", `移除附件：${file.name}`); remove.disabled=uploading;
+    remove.onclick=()=>{ draftAttachments=draftAttachments.filter(value=>value.id!==file.id); renderAttachments(); }; row.append(remove);
+  }
+  return row;
+}
+function renderAttachments() {
+  $("task-attachments").replaceChildren(...draftAttachments.map(file=>fileRow(file,true)));
+  if (!draftAttachments.length) $("task-attachments").append(element("p", "还没有附件", "resource-empty"));
+}
+function addLinkRow(link = {label:"",url:""}) {
+  if ($("task-links").querySelectorAll(".link-edit-row").length >= 20) { notice("最多添加 20 个链接"); return; }
+  $("task-links").querySelector(".resource-empty")?.remove();
+  const row=element("div", null, "link-edit-row"), label=element("input"), url=element("input"), remove=element("button", "×");
+  label.placeholder="链接名称（选填）"; label.maxLength=100; label.value=link.label; label.setAttribute("aria-label", "链接名称"); label.className="link-label";
+  url.type="url"; url.placeholder="https://…"; url.maxLength=4000; url.value=link.url; url.setAttribute("aria-label", "链接地址"); url.className="link-url";
+  remove.type="button"; remove.setAttribute("aria-label", "移除链接"); remove.onclick=()=>row.remove(); row.append(label,url,remove); $("task-links").append(row);
+}
+$("add-link").onclick=()=>addLinkRow();
+$("attachment-input").onchange=async () => {
+  const selected=[...$("attachment-input").files]; if (!selected.length) return;
+  $("task-error").textContent="";
+  if (selected.length + draftAttachments.length > 20) { $("task-error").textContent="每项任务最多 20 个附件"; $("attachment-input").value=""; return; }
+  if (selected.some(file=>!file.size || file.size>10*1024*1024)) { $("task-error").textContent="附件不能为空，单个文件最多 10 MB"; $("attachment-input").value=""; return; }
+  uploading=true; $("save-task").disabled=true; $("attachment-input").disabled=true;
+  $("task-dialog").querySelectorAll(".close-dialog").forEach(button=>button.disabled=true); renderAttachments();
+  try {
+    for (const [index,file] of selected.entries()) {
+      $("upload-state").textContent=`正在上传 ${index+1}/${selected.length}：${file.name}`;
+      const form=new FormData(); form.set("file",file);
+      const response=await fetch("/api/files",{method:"POST",body:form,signal:AbortSignal.timeout(120000)});
+      let data; try { data=await response.json(); } catch { throw new Error("文件上传失败，请重试"); }
+      if (!response.ok) throw new Error(data.error || "文件上传失败，请重试");
+      draftAttachments.push({...data,pending:true}); renderAttachments();
+    }
+    $("upload-state").textContent="上传完成，保存任务后即可在所有设备打开。";
+  } catch (error) { $("task-error").textContent=error.message; $("upload-state").textContent="未上传成功的文件可重新选择，已上传部分会保留。"; }
+  finally { uploading=false; $("save-task").disabled=false; $("attachment-input").disabled=false; $("attachment-input").value=""; $("task-dialog").querySelectorAll(".close-dialog").forEach(button=>button.disabled=false); renderAttachments(); }
+};
+$("task-dialog").addEventListener("cancel",event=>{if(uploading) event.preventDefault();});
 function hasDraft() { return !!$("board").querySelector("[data-dirty], [data-busy], .dragging"); }
 function checklist(initial, persist, inDialog = false) {
   const root = element("div", null, "checklist");
@@ -198,7 +253,14 @@ function card(task) {
     tasks = tasks.map(value => value.id === current.id ? current : value);
     task = current; lastPayload = "";
   });
-  article.append(list, footer);
+  article.append(list);
+  if (task.attachments?.length || task.links?.length) {
+    const resources=element("div", null, "resources");
+    resources.append(...(task.attachments || []).map(file=>fileRow(file)));
+    for (const link of task.links || []) { const row=element("div",null,"resource-row"); row.append(element("span","LINK","resource-kind"),externalLink(`${link.label || new URL(link.url).hostname} ↗`,link.url)); resources.append(row); }
+    article.append(resources);
+  }
+  article.append(footer);
   return article;
 }
 function render() {
@@ -248,6 +310,7 @@ async function refresh() {
     if (sequence !== refreshSequence || hasDraft() || document.querySelector(".checklist[data-busy]")) return;
     $("login").hidden = true; $("workspace").hidden = false;
     tasks = data.tasks; sources = data.sources;
+    $("storage-state").textContent = data.storage ? `附件空间：${fileSize(data.storage.used)} / ${fileSize(data.storage.limit)}` : "";
     const signature = JSON.stringify([tasks, sources, categoryFilter, Math.floor(Date.now()/60000)]);
     if (signature !== lastPayload) { render(); lastPayload = signature; }
     $("sync-state").textContent = "已同步 ↻"; $("sync-state").classList.remove("failed"); $("load-error").textContent = "";
@@ -270,6 +333,11 @@ function openTask(task = null) {
   $("task-title").value = task?.title || "";
   $("task-location").value = task?.location || "";
   draftTodos = structuredClone(task?.todos || []);
+  draftAttachments = structuredClone(task?.attachments || []); renderAttachments(); $("upload-state").textContent="";
+  $("task-links").replaceChildren(); for (const link of task?.links || []) addLinkRow(link);
+  if (!(task?.links || []).length) $("task-links").append(element("p", "可添加课程资料、会议或文档链接", "resource-empty"));
+  $("task-source").hidden=!task?.source_url; $("task-source").replaceChildren();
+  if (task?.source_url) $("task-source").append(externalLink("打开对应作业网页 ↗",task.source_url));
   $("task-todos").replaceChildren(checklist(draftTodos, async todos => { draftTodos = todos; }, true));
   $("status").value = task?.status || "todo";
   $("due-at").value = localInput(task?.due_at); $("starts-at").value = localInput(task?.starts_at); $("ends-at").value = localInput(task?.ends_at);
@@ -296,9 +364,11 @@ document.querySelectorAll(".close-dialog").forEach(button => button.onclick = ()
 $("task-form").onsubmit = async event => {
   event.preventDefault(); $("save-task").disabled = true; $("task-error").textContent = "";
   try {
+    if (uploading) throw new Error("请等待附件上传完成");
     const homework = taskCategory === "作业";
     if ($("task-todos").querySelector("[data-dirty], [data-busy]")) throw new Error("请先确认或取消正在输入的待办事项");
-    const payload = {category: taskCategory, title: $("task-title").value.trim(), location: $("task-location").value.trim(), todos: draftTodos, status: $("status").value,
+    const links=[...$("task-links").querySelectorAll(".link-edit-row")].map(row=>({label:row.querySelector(".link-label").value.trim(),url:row.querySelector(".link-url").value.trim()})).filter(link=>link.label || link.url);
+    const payload = {category: taskCategory, title: $("task-title").value.trim(), location: $("task-location").value.trim(), todos: draftTodos, links, attachments:draftAttachments.map(file=>file.id), status: $("status").value,
       due_at: homework ? inputTime($("due-at").value) : null, starts_at: homework ? null : inputTime($("starts-at").value),
       ends_at: homework ? null : inputTime($("ends-at").value)};
     if (editing) payload.revision = editing.revision;

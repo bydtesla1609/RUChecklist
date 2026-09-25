@@ -26,9 +26,13 @@ async function upload(message,sender) {
 async function scan() {
   const {enabled,boardURL,token,managedTabs={},sourceURLs={}}=await chrome.storage.local.get(["enabled","boardURL","token","managedTabs","sourceURLs"]);
   if(!enabled || !boardURL || !token) return;
-  for(const [source,fallback] of Object.entries(SOURCES)) {
+  const response=await fetch(`${boardURL}/api/collector-config`,{headers:{Authorization:`Bearer ${token}`},credentials:"omit",signal:AbortSignal.timeout(15000)});
+  if(!response.ok) throw new Error("无法读取作业来源，请检查看板地址和配对码");
+  const configuration=(await response.json()).sources;
+  for(const [source,defaultURL] of Object.entries(SOURCES)) {
+    const fallback=configuration?.[source]?.url || defaultURL;
     const candidate=new URL(sourceURLs[source] || fallback);
-    const url=candidate.protocol==="https:" && candidate.hostname===new URL(fallback).hostname ? candidate.href : fallback;
+    const url=candidate.protocol==="https:" && candidate.hostname===new URL(defaultURL).hostname ? candidate.href : defaultURL;
     let tab;try{if(managedTabs[source]) tab=await chrome.tabs.get(managedTabs[source]);}catch{}
     // Only refresh tabs created by this extension, and never refresh an active tab.
     if(tab){if(!tab.active && tab.url && new URL(tab.url).hostname===new URL(url).hostname) await chrome.tabs.reload(tab.id);}

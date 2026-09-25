@@ -1,0 +1,15 @@
+ALTER TABLE tasks ADD COLUMN links TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE tasks ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]';
+CREATE TABLE files (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,
+  size INTEGER NOT NULL CHECK(size > 0),
+  created_at TEXT NOT NULL
+);
+CREATE TABLE file_chunks (
+  file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  part INTEGER NOT NULL,
+  data BLOB NOT NULL,
+  PRIMARY KEY(file_id, part)
+);

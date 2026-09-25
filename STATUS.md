@@ -5,8 +5,8 @@
 ## 已发布
 
 - 正式看板：[campus-task-board.pages.dev](https://campus-task-board.pages.dev)。
-- 本次 Pages 部署：[54871e93.campus-task-board.pages.dev](https://54871e93.campus-task-board.pages.dev)。
-- 独立 Cloudflare Pages 项目与 D1 数据库。旧数据已备份，执行了增加标题、地点和待办清单的迁移。
+- 本次 Pages 部署：[a1e4c7cc.campus-task-board.pages.dev](https://a1e4c7cc.campus-task-board.pages.dev)。
+- 独立 Cloudflare Pages 项目与 D1 数据库。旧数据已备份，执行了标题 / 清单及附件 / 链接两次增量迁移。
 - 旧内容完整保留为标题；访问密码和登录方式不变。所有私人配置、备份、数据库、登录凭据均排除在公开源码之外。
 
 ## 本次功能
@@ -14,14 +14,16 @@
 - 添加任务继承当前侧栏板块，表单不再显示分类选择器。
 - 标题必填，地点及待办清单选填。
 - 清单支持卡片 / 详情内增删改、勾选、鼠标与触摸拖动、键盘排序。
-- 根据 `design.md` 统一深蓝紫风格，适配桌面与窄屏。
+- 根据 `design.md` 统一深蓝紫风格；放大文字，修复手机星星的字体基线偏移。
+- 新增云端附件和链接：编辑界面上传 / 移除，卡片中打开 / 下载 / 跳转，登录保护和跨设备同步。
+- 导入器读取看板已配置的课程入口，附带 SmartEstu 作业列表或课堂派单作业网页；三个平台的真实账号接入仍在待验收部分。
 
 ## 已通过
 
-- `node --test test.mjs`：3 项集成检查，包括旧库迁移与重启、跨会话同步、输入校验、清单持久化、冲突拒绝、导入去重、手动编辑保留。
-- `node ui-test.mjs`：隔离 Chromium 中真实表单与卡片操作、鼠标 / 触摸 / 键盘排序、两个浏览器会话、冲突草稿保留、390px 布局无横向溢出。已查看桌面、手机尺寸和弹窗截图；截图仅用测试数据。
+- `node --test test.mjs resources-test.mjs`：4 项集成检查，包括旧库迁移与重启、跨会话同步、输入校验、清单持久化、冲突拒绝、导入去重、手动编辑保留。
+- `node ui-test.mjs`：隔离 Chromium 中真实表单与卡片操作、鼠标 / 触摸 / 键盘排序、两个浏览器会话、冲突草稿保留、320–768px 布局无横向溢出、星星 SVG 居中、附件上传 / 图片打开 / 跨会话读取和链接。已查看桌面、手机尺寸和弹窗截图；截图仅用测试数据。
 - `node build-pages.mjs` 与 Pages 发布成功。
-- `node smoke.mjs https://campus-task-board.pages.dev`：正式站点静态资源、登录保护、两个独立会话、标题 / 地点 / 清单保存及顺序同步、过期修改拒绝通过；临时验证任务已删除。
+- `node smoke.mjs https://campus-task-board.pages.dev`：正式站点静态资源、登录保护、两个独立会话、标题 / 地点 / 清单保存及顺序同步、过期修改拒绝、600 KB 附件跨设备逐字节下载及跨分片 Range 读取通过；临时验证任务已删除。
 
 ## 尚未验收
 

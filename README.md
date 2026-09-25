@@ -11,7 +11,8 @@
 - 作业填 DDL；其他任务填起止时间。统一按北京时间输入和显示。
 - 待开始、进行中、已完成三列，按截止 / 结束时间排序，提供真实任务概况。
 - 登录后的页面前台每 6 秒同步；输入、拖动或保存期间暂停重绘。并发修改返回冲突并保留本地清单草稿。
-- 私人看板通过访问密码保护，公开代码不包含密码、数据库、课程地址或个人任务。
+- 手动添加附件和链接；图片、PDF 在浏览器打开，Word 等文件下载查看，卡片及详情均可访问。
+- 私人看板通过访问密码保护，附件下载也需要登录。公开代码不包含密码、数据库、课程地址或个人任务。
 
 视觉规范见 [design.md](design.md)。原生 HTML / CSS / JavaScript，Cloudflare Pages Functions + D1；本地版使用 Node.js 内置 SQLite。运行应用无需安装 npm 依赖。
 
@@ -38,11 +39,12 @@ wrangler d1 create campus-task-board
 
 将 `wrangler.example.jsonc` 复制为 `wrangler.jsonc`，填写创建时返回的数据库 ID。真实部署配置已被 Git 忽略。
 
-**新数据库**依次运行以下两条；旧版数据库只运行第二条一次。执行前请先备份，迁移不会删除任务。不要对已升级的数据库重复执行 `0002`：
+**新数据库**依次运行下面的初始化与迁移；旧版数据库只执行尚未应用的迁移。执行前先备份，不要重复运行同一个迁移：
 
 ```sh
 wrangler d1 execute campus-task-board --remote --file schema.sql
 wrangler d1 execute campus-task-board --remote --file migrations/0002_task_details.sql
+wrangler d1 execute campus-task-board --remote --file migrations/0003_resources.sql
 ```
 
 先运行一次本地版以生成密码，再生成仅保存在本地的部署密钥文件：
@@ -59,11 +61,19 @@ wrangler pages deploy dist/pages --project-name campus-task-board --branch main
 
 用 Windows 浏览器和 iPhone Safari 打开发布得到的同一 HTTPS 地址，输入相同访问密码。Safari 可用“分享 → 添加到主屏幕”保存入口。云端部署后电脑关机不影响任务看板本身访问。
 
+## 附件与链接
+
+在任务编辑窗口选择文件，上传结束后保存任务。单个文件最多 **10 MB**，每任务最多 20 个文件，当前看板附件空间 **100 MB**。附件与链接会同步到所有已登录设备。
+
+附件使用现有 D1 的二进制分片存储（每片 512 KiB），不要求额外开通付费存储。此设计适合个人的小文档；需要更大空间时应迁移到 R2。文件名保留中文，图片 / PDF 根据文件签名识别，其余类型强制下载，不将 HTML / SVG 当网页执行。支持 HTTP Range，跨分片下载与原文件逐字节校验。删除任务或移除附件后，文件立即不可读取；上传时清理超过 24 小时且未关联任务的文件。
+
+链接名称选填，地址必须以 http/https 开头。不接受脚本地址或包含账号密码的 URL。自动导入保留平台网页：课堂派可跳到具体作业；SmartEstu 目前公开前端使用作业弹窗，没有可验证的单作业深链接，回到该平台作业列表。
+
 ## Edge 作业导入扩展
 
 1. Edge 打开 `edge://extensions`，启用开发人员模式，加载项目的 `extension/` 文件夹。
 2. 看板 → 作业来源与同步 → 生成扩展配对码。
-3. 扩展设置填写看板地址和配对码；可选填自己的课程作业页，勾选自动检查后保存并允许访问看板地址。
+3. 扩展设置填写看板地址和配对码；默认读取看板已配置的课程入口，也可自行覆盖作业页，勾选自动检查后保存并允许访问看板地址。
 4. 点击“立即打开作业页”，在专用标签页确认已登录并打开作业列表。每 15 分钟刷新扩展创建的非活动标签页；正在使用的标签页不自动刷新。
 
 配对码只允许导入作业，不能读取整个看板或编辑手动任务。不读取密码、Cookie、答案或成绩；只导入识别到的作业标题、课程、截止时间和作业编号。导入去重，保留人工标题、地点、清单和进度；删除后的导入任务不会重新出现。
@@ -78,7 +88,7 @@ wrangler pages deploy dist/pages --project-name campus-task-board --branch main
 ## 验证
 
 ```sh
-node --test test.mjs
+node --test test.mjs resources-test.mjs
 node smoke.mjs http://127.0.0.1:8765
 ```
 
@@ -92,7 +102,7 @@ npx playwright install chromium
 node ui-test.mjs
 ```
 
-检查创建临时数据库和隔离浏览器，覆盖卡片 / 详情操作、鼠标 / 触摸 / 键盘排序、两个浏览器会话、冲突时保留草稿和窄屏布局；示例截图写入被忽略的 `data/screenshots/`。真实 iPhone Safari 仍需实机验收。
+检查创建临时数据库和隔离浏览器，覆盖卡片 / 详情操作、鼠标 / 触摸 / 键盘排序、两个浏览器会话、冲突时保留草稿、附件上传与图片查看、跨会话文件读取、链接，以及 320–768px 布局和星星图标居中；示例截图写入被忽略的 `data/screenshots/`。真实 iPhone Safari 仍需实机验收。
 
 ## 文件
 
