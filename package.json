@@ -1,0 +1,16 @@
+{
+  "name": "campus-task-board",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node local.mjs",
+    "build:pages": "node build-pages.mjs",
+    "test": "node --test test.mjs",
+    "check": "node --check worker.mjs && node --check static/app.js",
+    "test:ui": "node ui-test.mjs"
+  }
+}

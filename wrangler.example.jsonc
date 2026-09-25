@@ -1,0 +1,10 @@
+{
+  "name": "campus-task-board",
+  "pages_build_output_dir": "./dist/pages",
+  "compatibility_date": "2026-05-15",
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "campus-task-board",
+    "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+  }]
+}

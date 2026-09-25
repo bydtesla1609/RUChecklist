@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "大学任务看板 · 作业导入",
+  "version": "1.0.0",
+  "description": "从已登录的教学网站读取作业标题和截止时间，导入你自己的看板。",
+  "permissions": ["storage", "alarms"],
+  "host_permissions": ["https://smartestu.cn/*", "https://www.ketangpai.com/*", "https://mooc2-ans.chaoxing.com/*"],
+  "optional_host_permissions": ["https://*/*", "http://127.0.0.1/*", "http://localhost/*"],
+  "background": {"service_worker": "background.js"},
+  "action": {"default_popup": "options.html", "default_title": "作业导入设置"},
+  "options_page": "options.html",
+  "content_scripts": [
+    {"matches": ["https://smartestu.cn/*", "https://www.ketangpai.com/*"], "js": ["parsers.js", "capture.js"], "run_at": "document_start", "world": "MAIN"},
+    {"matches": ["https://smartestu.cn/*", "https://www.ketangpai.com/*", "https://mooc2-ans.chaoxing.com/*"], "js": ["content.js"], "run_at": "document_start", "all_frames": true}
+  ]
+}

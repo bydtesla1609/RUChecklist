@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#101225"><meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="description" content="管理作业、科研、竞赛、活动和组织事务的个人任务看板。">
+  <title>大学任务看板</title>
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script>
+</head>
+<body>
+<section id="login" class="login" hidden>
+  <form id="login-form" class="login-card">
+    <div class="brand-icon" aria-hidden="true">✦</div><p class="eyebrow">CAMPUS BOARD</p><h1>你的大学，有序发生。</h1>
+    <p class="muted">电脑与手机，使用同一个看板。</p>
+    <label for="password">访问密码</label><input id="password" type="password" autocomplete="current-password" required>
+    <p id="login-error" class="error" role="alert"></p><button type="submit" class="primary">进入看板 <span aria-hidden="true">→</span></button>
+    <p class="hint">一个空间，装下学习与生活。</p>
+  </form>
+</section>
+<div id="workspace" class="workspace" hidden>
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="大学任务看板首页"><span class="brand-icon" aria-hidden="true">✦</span><span>大学任务看板<small>CAMPUS BOARD</small></span></a>
+    <p class="nav-heading">我的任务</p><nav id="categories" aria-label="任务分类"></nav>
+    <div class="sidebar-bottom"><div class="focus-note"><span class="eyebrow">ONE THING AT A TIME</span><p>慢慢来，<br>每一步都算数。</p><span class="orbit" aria-hidden="true">✦</span></div><button id="sources-button" class="nav-button">↻ <span>作业来源与同步</span></button><button id="logout" class="nav-button">↗ <span>退出登录</span></button></div>
+  </aside>
+  <main>
+    <header class="topbar"><div><span class="eyebrow">我的大学 · 任务空间</span><p id="today"></p></div><button id="sync-state" class="sync-state" title="立即刷新" aria-live="polite">正在连接…</button></header>
+    <section class="heading"><div><p class="eyebrow section-kicker">MAKE ROOM FOR WHAT MATTERS</p><h1 id="view-title">全部任务</h1><p class="muted">把精力留给正在做的事。</p></div><div class="add-control"><button id="add-task" class="primary" aria-expanded="false"><span aria-hidden="true">＋</span> 添加任务</button><div id="add-menu" class="add-menu" hidden aria-label="选择任务板块"></div></div></section>
+    <section class="summary" aria-label="任务概况"><div><span>待完成</span><strong id="count-open">0</strong><small>保持自己的节奏</small><span class="stat-art" aria-hidden="true">◌</span></div><div><span>未来 7 天到期 / 结束</span><strong id="count-soon">0</strong><small>为重要的事留时间</small><span class="stat-art" aria-hidden="true">↗</span></div><div><span>已逾期</span><strong id="count-overdue">0</strong><small>重新安排，也是一种进展</small><span class="stat-art" aria-hidden="true">⌁</span></div><div><span>已完成</span><strong id="count-done">0</strong><small>每一份投入都有回响</small><span class="stat-art" aria-hidden="true">✓</span></div></section>
+    <div class="board-caption"><h2>任务看板 <span class="caption-en">YOUR FLOW</span></h2><span>按截止 / 结束时间排序 · 北京时间</span></div>
+    <div id="board" class="board" aria-live="polite"></div>
+    <p id="load-error" class="error" role="alert"></p>
+  </main>
+</div>
+<dialog id="task-dialog">
+  <form id="task-form">
+    <div class="dialog-heading"><div><p class="eyebrow">TASK DETAILS</p><h2 id="dialog-title">添加任务</h2></div><button type="button" class="icon-button close-dialog" aria-label="关闭">×</button></div>
+    <label for="task-title">标题 <span class="required">*</span></label><input id="task-title" maxlength="4000" placeholder="为这件事起个名字" required>
+    <label for="task-location">地点 <span class="optional">选填</span></label><input id="task-location" maxlength="300" placeholder="例如：明德楼 302 / 图书馆 / 线上">
+    <div class="field-heading"><span>待办事项 <span class="optional">选填</span></span><span class="hint">拖动 ⋮⋮ 排序</span></div>
+    <div id="task-todos"></div>
+    <div id="deadline-field"><label for="due-at">截止时间（DDL）</label><input id="due-at" type="datetime-local"></div>
+    <div id="range-fields" class="date-range" hidden><div><label for="starts-at">开始时间</label><input id="starts-at" type="datetime-local"></div><div><label for="ends-at">结束时间</label><input id="ends-at" type="datetime-local"></div></div>
+    <p class="hint">以上时间均为北京时间（UTC+8）。</p>
+    <label for="status">进度</label><select id="status"><option value="todo">待开始</option><option value="doing">进行中</option><option value="done">已完成</option></select>
+    <p id="task-error" class="error" role="alert"></p>
+    <div class="dialog-actions"><button type="button" class="secondary close-dialog">取消</button><button id="save-task" class="primary" type="submit">保存任务</button></div>
+  </form>
+</dialog>
+<dialog id="sources-dialog">
+  <div class="dialog-heading"><div><p class="eyebrow">CONNECTED SOURCES</p><h2>作业来源与同步</h2></div><button class="icon-button close-dialog" aria-label="关闭">×</button></div>
+  <p class="muted">看板数据保存在服务器。设备打开同一地址后，每 6 秒刷新一次。</p>
+  <div id="sources-list"></div>
+  <div class="connection-note"><strong>Edge 作业导入</strong><p>需要安装项目中的 Edge 扩展并完成配对。网站未连接、登录失效或页面无法识别时，将在这里显示状态。</p><p>浏览器关闭或电脑休眠时，扩展不会采集新作业。</p></div>
+  <button id="pair" class="secondary">生成扩展配对码</button><p class="hint">生成新码会使旧的配对码失效。</p>
+  <div id="pair-result" hidden><label for="pair-url">看板地址</label><input id="pair-url" readonly><label for="pair-code">配对码（仅供导入）</label><input id="pair-code" readonly></div>
+  <p id="source-error" class="error" role="alert"></p>
+</dialog>
+<dialog id="delete-dialog"><h2>删除这项任务？</h2><p>从教学网站导入的任务，删除后不会再次自动加入。</p><div class="dialog-actions"><button class="secondary close-dialog">取消</button><button id="confirm-delete" class="danger">删除任务</button></div></dialog>
+<div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

@@ -1,0 +1,14 @@
+data/
+__pycache__/
+.venv/
+.env
+*.log
+.dev.vars
+.wrangler/
+node_modules/
+dist/
+*.zip
+.env.*
+.dev.vars.*
+wrangler.jsonc
+wrangler.worker.jsonc
