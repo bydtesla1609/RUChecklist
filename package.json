@@ -1,6 +1,6 @@
 {
   "name": "campus-task-board",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -9,8 +9,9 @@
   "scripts": {
     "start": "node local.mjs",
     "build:pages": "node build-pages.mjs",
-    "test": "node --test test.mjs resources-test.mjs",
+    "test": "node --test test.mjs resources-test.mjs completion-test.mjs",
     "check": "node --check worker.mjs && node --check static/app.js",
-    "test:ui": "node ui-test.mjs"
+    "test:ui": "node ui-test.mjs",
+    "test:extension": "node extension-ui-test.mjs"
   }
 }

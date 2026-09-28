@@ -132,6 +132,31 @@ try {
     ];
     for (const sample of samples) { const r=await fetch("/api/tasks",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(sample)}); if(!r.ok) throw new Error("Fixture creation failed"); }
   });
+  await page.evaluate(async()=>fetch("/api/tasks",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:"完成较晚的作业",due_at:"2026-09-01T00:00:00Z",status:"done"})}));
+  database.prepare("UPDATE tasks SET completed_at=? WHERE title=?").run(new Date(Date.now()-3600000).toISOString(),"校园夜跑计划");
+  await page.locator("#sync-state").click();await category(page,"全部任务").click();
+  await page.locator(".done .task-title").filter({hasText:"完成较晚的作业"}).waitFor();
+  assert.deepEqual(await page.locator(".done .task-title").allTextContents(),["完成较晚的作业","校园夜跑计划"]);
+  assert.equal(await page.locator(".done .task").first().locator(".time-label").textContent(),"完成时间");
+  const archiveId=await page.evaluate(async()=>{
+    const response=await fetch("/api/tasks",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({category:"作业",title:"归档检查 · 已提交报告",location:"实验室",due_at:"2026-09-01T12:00:00Z",status:"done",todos:[{id:"archive-todo",text:"最终检查",done:true}],links:[{label:"参考文档",url:"https://example.com/archive"}]})});
+    return (await response.json()).id;
+  });
+  database.prepare("UPDATE tasks SET completed_at=? WHERE id=?").run(new Date(Date.now()-8*86400000).toISOString(),archiveId);
+  await page.locator("#sync-state").click();await page.locator("#archive-button").click();
+  await page.getByRole("button",{name:"查看归档：归档检查 · 已提交报告",exact:true}).click();
+  await page.locator("#archive-detail-dialog").waitFor({state:"visible"});
+  assert.ok(await page.locator("#archive-detail").getByText("地点 · 实验室",{exact:true}).isVisible());
+  assert.ok(await page.locator("#archive-detail").getByText("☑ 最终检查",{exact:true}).isVisible());
+  await mkdir("data/screenshots",{recursive:true});await page.screenshot({path:"data/screenshots/archive-detail.png"});
+  await page.getByRole("button",{name:"关闭详情",exact:true}).click();
+  await page.screenshot({path:"data/screenshots/archive.png"});
+  await page.locator("#archive-categories button").filter({hasText:"科研"}).click();
+  await page.locator("#archive-list .archive-empty").waitFor();
+  await page.locator("#archive-categories button").filter({hasText:"作业"}).click();
+  await page.getByRole("button",{name:"删除归档：归档检查 · 已提交报告",exact:true}).click();
+  await page.locator("#confirm-delete").click();await page.locator("#archive-list .archive-empty").waitFor();
+  await page.getByRole("button",{name:"关闭归档",exact:true}).click();
   await page.locator("#sync-state").click(); await category(page, "全部任务").click();
   await page.locator("article.task").filter({hasText: "数据结构"}).waitFor();
   await mkdir("data/screenshots", {recursive: true});
@@ -141,11 +166,27 @@ try {
   await phone.screenshot({path:"data/screenshots/mobile.png",fullPage:true});
   await phone.screenshot({path:"data/screenshots/mobile-top.png"});
   for(const width of [320,375,430,768]) { await phone.setViewportSize({width,height:844});assert.equal(await phone.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`overflow at ${width}px`); }
+  await page.evaluate(()=>{
+    let enabled=true;window.testScanCount=0;
+    window.addEventListener("message",event=>{
+      if(event.data?.kind!=="campus-board-command") return;
+      const {id,command}=event.data;
+      if(command==="configure") enabled=event.data.enabled;
+      if(command==="scan") window.testScanCount++;
+      window.postMessage({kind:"campus-board-reply",id,result:command==="status"?{version:"1.2.0",connected:true,enabled,sourceResults:{}}:{ok:true}},location.origin);
+    });
+  });
+  await page.locator("#sources-button").click();await page.locator("#collector-controls").waitFor({state:"visible"});
+  await page.locator("#collector-scan").click();assert.equal(await page.evaluate(()=>window.testScanCount),1);
+  await page.locator("#collector-enabled").uncheck();await page.waitForFunction(()=>document.getElementById("collector-state").textContent.includes("已暂停"));
+  assert.equal(await page.locator("#collector-scan").isDisabled(),true);
+  await page.screenshot({path:"data/screenshots/sources.png"});
+  await page.locator("#sources-dialog .close-dialog").click();
   await category(page, "活动").click(); await page.locator("#add-task").click();
   assert.equal(await page.locator("#dialog-title").textContent(), "添加活动");
   await page.screenshot({path:"data/screenshots/form.png"});
   assert.deepEqual(errors, []);
-  console.log("PASS: category inheritance, required title, location, detail/card todo CRUD, mouse/touch/keyboard sorting, two browser sessions, conflict draft retention, 320–768px layouts, SVG alignment, attachment upload/preview/download and shared links. Screenshots: data/screenshots/ (synthetic data only).");
+  console.log("PASS: completion order, archive filter/detail/delete, simulated board-to-extension controls, category inheritance, required title, location, detail/card todo CRUD, mouse/touch/keyboard sorting, two browser sessions, conflict draft retention, 320–768px layouts, SVG alignment, attachment upload/preview/download and shared links. Screenshots: data/screenshots/ (synthetic data only).");
 } finally {
   await browser?.close(); server.closeAllConnections(); await new Promise(resolve=>server.close(resolve)); database.close();
   await rm(directory, {recursive:true,force:true});

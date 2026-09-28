@@ -1,4 +1,5 @@
-/* Fields checked against the platforms' public frontend bundles on 2026-09-25.
+/* SmartEstu / Ketangpai states checked against public frontend bundles on 2026-09-28.
+ * Chaoxing reads explicit list DOM metadata; see README integration limitations.
  * Only assignment-list responses are processed; cookies, tokens, answers and grades are never copied.
  */
 globalThis.CampusParsers = (() => {
@@ -34,12 +35,15 @@ globalThis.CampusParsers = (() => {
           if(task.id===undefined || typeof task.name!=="string") throw new Error("SmartEstu 作业字段发生变化");
           const item={external_id:`${course.courseId || ""}:${task.id}`,content:task.name,
             due_at:date(task.personalLateDeadlineAt || task.endTime),course:String(course.courseName || ""),source_url:"https://smartestu.cn/assignment?tab=assignments"};
+          const status={not_submitted:"todo",submitted:"doing",completed:"done"}[task.submission_status];
+          if(status) item.status=status;
           output.set(item.external_id,item);
         }
       });
     }
     if(source==="ketangpai" && /\/(?:FutureV2\/CourseMeans\/getCourseContent|Futurev2\/Homework\/getListByCourseToStudent)(?:\?|$)/i.test(url)) {
       const homeworkOnly=/getListByCourseToStudent/i.test(url);
+      if(Array.isArray(value?.data?.list) && !value.data.list.length) recognized=true;
       walk(value,task=>{
         if(String(task.contenttype)!=="4" && !(homeworkOnly && task.title && Object.hasOwn(task,"endtime"))) return;
         if(typeof task.title!=="string" || (task.id===undefined && task.homeworkid===undefined)) throw new Error("课堂派作业字段发生变化");
@@ -50,11 +54,39 @@ globalThis.CampusParsers = (() => {
         // Route verified in the platform's public frontend bundle, 2026-09-25.
         const source_url=course ? `https://www.ketangpai.com/#/homework?${new URLSearchParams({courseid:String(course),courserole:"0",homeworkId:id})}` : "https://www.ketangpai.com/";
         const item={external_id:id,content:task.title,due_at:date(task.endtime),course:String(task.coursename || ""),source_url};
+        const status={"0":"todo","1":"done","2":"done","3":"todo","4":"done"}[String(task.mstatus)];
+        if(status) item.status=status;
         output.set(item.external_id,item);
       });
     }
     if(!recognized) return null;
     return [...output.values()];
   }
-  return {parse,date};
+  function chaoxing(document,pageURL) {
+    if(!/\/work\/(?:list|all-task)(?:\?|$)/.test(pageURL)) return null;
+    const result=new Map();
+    for(const row of document.querySelectorAll("li[data]")) {
+      const title=row.querySelector(".overHidden2"),label=row.querySelector(".status");
+      if(!title || !label) continue;
+      const url=new URL(row.getAttribute("data"),pageURL);
+      if(url.protocol!=="https:" || !/(^|\.)chaoxing\.com$/.test(url.hostname) || !/\/work\/(task|eval-list)$/.test(url.pathname)) continue;
+      const id=url.searchParams.get("workId"),course=url.searchParams.get("courseId") || new URL(pageURL).searchParams.get("courseId");
+      if(!id || !course || !title.textContent.trim()) continue;
+      const statusText=label.textContent.trim();
+      let status;
+      if(/未交|未提交|打回|退回|重做/.test(statusText)) status="todo";
+      else if(/待互[评評]/.test(statusText)) status="doing";
+      else if(/已完成|已提交|已交|待批[阅閱改]|已批[阅閱改]|已互[评評]/.test(statusText)) status="done";
+      const time=row.querySelector(".time");
+      const text=[time?.getAttribute("title"),time?.getAttribute("data-time"),time?.textContent].filter(Boolean).join(" ");
+      const absolute=text.match(/\d{4}[-/]\d{2}[-/]\d{2}\s+\d{2}:\d{2}(?::\d{2})?/);
+      const task={external_id:`${course}:${id}`,content:title.textContent.trim(),due_at:absolute?date(absolute[0]):null,course:"",source_url:url.href};
+      if(status) task.status=status;
+      result.set(task.external_id,task);
+    }
+    if(result.size) return [...result.values()];
+    if(document.querySelector(".ulDiv, .work-list") && /暂无作业|没有作业|暂无相关/.test(document.body?.textContent || "")) return [];
+    return null;
+  }
+  return {parse,date,chaoxing};
 })();

@@ -5,6 +5,8 @@ const STATES = {todo: "待开始", doing: "进行中", done: "已完成"};
 let tasks = [], sources = [], categoryFilter = "全部", editing = null, deleting = null;
 let refreshSequence = 0, lastPayload = "", toastTimer, taskCategory = "作业", draftTodos = [];
 let draftAttachments = [], uploading = false;
+let collectorState=null;
+let archiveCategory="全部", archiveItems=[], archiveTotal=0, archiveSequence=0;
 
 function element(tag, text, className) {
   const node = document.createElement(tag);
@@ -33,7 +35,8 @@ function showLogin() {
   $("workspace").hidden = true;
   $("login").hidden = false;
   document.querySelectorAll("dialog[open]").forEach(dialog => dialog.close());
-  tasks = []; sources = []; lastPayload = "";
+  tasks = []; sources = []; archiveItems=[]; lastPayload = "";
+  $("archive-list").replaceChildren(); $("archive-detail").replaceChildren();
   $("board").replaceChildren(); $("sources-list").replaceChildren(); $("pair-code").value = "";
 }
 function formatTime(value, includeYear = false) {
@@ -219,8 +222,9 @@ function card(task) {
   if (task.course) article.append(element("p", task.course, "course"));
   const isOverdue = task.status !== "done" && deadline(task) && new Date(deadline(task)) < new Date();
   const time = element("div", null, "task-time" + (isOverdue ? " overdue" : ""));
-  time.append(element("p", (isOverdue ? "已逾期 · " : "") + (task.category === "作业" ? "截止时间" : "起止时间"), "time-label"));
-  if (task.category === "作业") time.append(element("p", formatTime(task.due_at, true)));
+  const completedHomework=task.category==="作业" && task.status==="done";
+  time.append(element("p", (isOverdue ? "已逾期 · " : "") + (completedHomework ? "完成时间" : task.category === "作业" ? "截止时间" : "起止时间"), "time-label"));
+  if (task.category === "作业") time.append(element("p", formatTime(completedHomework ? task.completed_at : task.due_at, true)));
   else time.append(element("p", formatTime(task.starts_at)), element("p", `至 ${formatTime(task.ends_at, true)}`));
   const footer = element("div", null, "task-footer");
   footer.append(element("span", STATES[task.status], "task-status"));
@@ -267,10 +271,13 @@ function render() {
   $("count-overdue").textContent = open.filter(t => deadline(t) && new Date(deadline(t)).getTime() < current).length;
   $("board").replaceChildren(...Object.entries(STATES).map(([state, label]) => {
     const column = element("section", null, `column ${state}`);
-    const matching = visible.filter(t => t.status === state).sort((a,b) => (deadline(a) || "9999").localeCompare(deadline(b) || "9999") || a.created_at.localeCompare(b.created_at));
+    const matching = visible.filter(t => t.status === state).sort((a,b) => state==="done"
+      ? (b.completed_at || b.updated_at).localeCompare(a.completed_at || a.updated_at) || b.id.localeCompare(a.id)
+      : (deadline(a) || "9999").localeCompare(deadline(b) || "9999") || a.created_at.localeCompare(b.created_at));
     const header = element("div", null, "column-heading");
     header.append(element("span", null, "line"), element("h3", label), element("span", String(matching.length), "count"));
     column.append(header);
+    if(state==="done") column.append(element("p","最近 7 天 · 按完成时间倒序","column-note"));
     if (matching.length) column.append(...matching.map(card));
     else {
       const empty = element("div", null, "empty");
@@ -283,6 +290,94 @@ function render() {
   }));
   renderSources();
 }
+function renderArchive() {
+  $("archive-categories").replaceChildren(...["全部",...CATEGORIES].map(category=>{
+    const button=element("button",category,"archive-tab"+(category===archiveCategory?" active":""));
+    button.setAttribute("aria-pressed",String(category===archiveCategory));
+    button.onclick=()=>{archiveCategory=category;loadArchive();};return button;
+  }));
+  $("archive-list").replaceChildren(...archiveItems.map(task=>{
+    const row=element("div",null,"archive-row"),info=element("div",null,"archive-info");
+    info.append(element("h3",task.title));
+    info.append(element("p",task.category==="作业" ? `截止时间 · ${formatTime(task.due_at,true)}` : `${formatTime(task.starts_at,true)} 至 ${formatTime(task.ends_at,true)}`,"muted"));
+    const actions=element("div",null,"task-actions"),view=element("button","查看","edit-task"),remove=element("button","删除","delete-task");
+    view.setAttribute("aria-label",`查看归档：${task.title}`);
+    view.onclick=async()=>{view.disabled=true;try{showArchiveDetail(await api(`/api/tasks/${task.id}`));}catch(error){$("archive-error").textContent=error.message;}finally{view.disabled=false;}};
+    remove.setAttribute("aria-label",`删除归档：${task.title}`);remove.onclick=()=>{deleting=task;$("delete-dialog").showModal();};
+    actions.append(view,remove);row.append(info,actions);return row;
+  }));
+  if(!archiveItems.length) $("archive-list").append(element("p","此板块暂无归档任务。","archive-empty"));
+  $("archive-more").hidden=archiveItems.length>=archiveTotal;
+}
+async function loadArchive(more=false) {
+  const sequence=++archiveSequence;$("archive-error").textContent="";$("archive-more").disabled=true;
+  try {
+    const data=await api(`/api/archive?${new URLSearchParams({category:archiveCategory,offset:more?archiveItems.length:0})}`);
+    if(sequence!==archiveSequence) return;
+    archiveItems=more?[...archiveItems,...data.tasks]:data.tasks;archiveTotal=data.total;renderArchive();
+  }catch(error){$("archive-error").textContent=error.message;}
+  finally{if(sequence===archiveSequence) $("archive-more").disabled=false;}
+}
+function showArchiveDetail(task) {
+  const root=$("archive-detail");root.replaceChildren(element("span",task.category,`badge cat-${CATEGORIES.indexOf(task.category)}`),element("h3",task.title,"archive-title"));
+  if(task.location) root.append(element("p",`地点 · ${task.location}`,"task-location"));
+  if(task.course) root.append(element("p",task.course,"course"));
+  root.append(element("p",`完成时间 · ${formatTime(task.completed_at,true)}`,"task-time"));
+  root.append(element("p",task.category==="作业"?`原截止时间 · ${formatTime(task.due_at,true)}`:`起止时间 · ${formatTime(task.starts_at,true)} 至 ${formatTime(task.ends_at,true)}`,"task-time"));
+  if(task.todos.length) {const list=element("ul",null,"archive-todos");for(const todo of task.todos) list.append(element("li",`${todo.done?"☑":"☐"} ${todo.text}`));root.append(list);}
+  const resources=element("div",null,"resources");resources.append(...task.attachments.map(file=>fileRow(file)));
+  for(const link of task.links) {const row=element("div",null,"resource-row");row.append(externalLink(`${link.label || new URL(link.url).hostname} ↗`,link.url));resources.append(row);}
+  root.append(resources);if(task.source_url) root.append(externalLink("查看原作业 ↗",task.source_url));
+  $("archive-detail-dialog").showModal();
+}
+$("archive-button").onclick=()=>{$("archive-dialog").showModal();loadArchive();};
+$("archive-more").onclick=()=>loadArchive(true);
+const collectorRequests=new Map();
+window.addEventListener("message",event=>{
+  if(event.source!==window || event.origin!==location.origin || event.data?.kind!=="campus-board-reply") return;
+  const pending=collectorRequests.get(event.data.id);if(!pending) return;
+  clearTimeout(pending.timer);collectorRequests.delete(event.data.id);
+  if(event.data.result?.error) pending.reject(new Error(event.data.result.error));else pending.resolve(event.data.result);
+});
+function collectorCommand(command,extra={},timeout=18000) {
+  return new Promise((resolve,reject)=>{
+    const id=crypto.randomUUID(),timer=setTimeout(()=>{collectorRequests.delete(id);reject(new Error("此浏览器未连接新版扩展。请在 Edge 重新加载扩展，再刷新看板；手机端可查看电脑同步的结果。"));},timeout);
+    collectorRequests.set(id,{resolve,reject,timer});window.postMessage({kind:"campus-board-command",id,command,...extra},location.origin);
+  });
+}
+async function checkCollector() {
+  try {
+    collectorState=await collectorCommand("status",{},1800);
+    $("collector-controls").hidden=false;
+    $("collector-state").textContent=collectorState.connected?`扩展 ${collectorState.version} 已连接 · ${collectorState.enabled?"自动检查已开启":"已暂停"}`:`已检测到扩展 ${collectorState.version}，点击连接即可完成配对。`;
+    $("collector-connect").textContent=collectorState.connected?"重新连接":"连接此看板";
+    $("collector-scan").disabled=!collectorState.connected || !collectorState.enabled;
+    $("collector-enabled").disabled=!collectorState.connected;$("collector-enabled").checked=collectorState.enabled;
+    renderSources();
+  }catch(error){collectorState=null;$("collector-controls").hidden=true;$("collector-state").textContent=error.message;}
+}
+$("collector-connect").onclick=async()=>{
+  $("collector-connect").disabled=true;$("source-error").textContent="";
+  try {
+    await collectorCommand("status",{},1800);
+    const {token}=await api("/api/collector-token","POST",{});
+    await collectorCommand("pair",{token});await checkCollector();
+    $("collector-state").textContent="已连接。正在打开作业页，读取结果会显示在各平台下方…";
+    await collectorCommand("scan");
+  }catch(error){$("source-error").textContent=error.message;}finally{$("collector-connect").disabled=false;}
+};
+$("collector-scan").onclick=async()=>{
+  $("collector-scan").disabled=true;$("source-error").textContent="";
+  try{await collectorCommand("scan");$("collector-state").textContent="已开始检查，请稍候。登录失效或无法识别时会在对应平台下方提示。";}
+  catch(error){$("source-error").textContent=error.message;}finally{$("collector-scan").disabled=false;}
+};
+$("collector-enabled").onchange=async()=>{
+  const enabled=$("collector-enabled").checked;$("collector-enabled").disabled=true;
+  try{await collectorCommand("configure",{enabled});await checkCollector();}
+  catch(error){$("source-error").textContent=error.message;$("collector-enabled").checked=!enabled;}
+  finally{$("collector-enabled").disabled=false;}
+};
+$("collector-options").onclick=()=>collectorCommand("options").catch(error=>{$("source-error").textContent=error.message;});
 function renderSources() {
   $("sources-list").replaceChildren(...sources.map(source => {
     const row = element("div", null, "source-row"), header = element("div");
@@ -290,6 +385,10 @@ function renderSources() {
     const fresh = source.last_seen && Date.now() - new Date(source.last_seen).getTime() < 30 * 60000;
     header.append(link, element("span", source.error ? "需处理" : fresh ? "已接收" : source.last_seen ? "等待新数据" : "待连接", "state" + (fresh && !source.error ? " connected" : "")));
     row.append(header, element("p", source.error || (source.last_seen ? `上次接收 ${formatTime(source.last_seen)} · ${source.task_count} 项作业` : "尚未收到此网站的作业数据")));
+    const local=collectorState?.sourceResults?.[source.id];
+    if(local?.time && (!source.last_seen || Date.parse(local.time)>=Date.parse(source.last_seen)-1000)) {
+      row.append(element("p",local.error || `本机上次检查 · 读取 ${local.count} 项，更新 ${local.changed} 项${local.missingDates?` · ${local.missingDates} 项未提供完整截止时间`:""}`,"source-diagnostic"));
+    }
     return row;
   }));
 }
@@ -301,6 +400,7 @@ async function refresh() {
     if (sequence !== refreshSequence || hasDraft() || document.querySelector(".checklist[data-busy]")) return;
     $("login").hidden = true; $("workspace").hidden = false;
     tasks = data.tasks; sources = data.sources;
+    if($("sources-dialog").open && collectorState) checkCollector();
     $("storage-state").textContent = data.storage ? `附件空间：${fileSize(data.storage.used)} / ${fileSize(data.storage.limit)}` : "";
     const signature = JSON.stringify([tasks, sources, categoryFilter, Math.floor(Date.now()/60000)]);
     if (signature !== lastPayload) { render(); lastPayload = signature; }
@@ -331,6 +431,7 @@ function openTask(task = null) {
   if (task?.source_url) $("task-source").append(externalLink("打开对应作业网页 ↗",task.source_url));
   $("task-todos").replaceChildren(checklist(draftTodos, async todos => { draftTodos = todos; }, true));
   $("status").value = task?.status || "todo";
+  $("task-completed").hidden=!task?.completed_at; $("task-completed").textContent=task?.completed_at ? `完成时间 · ${formatTime(task.completed_at,true)}（重新打开任务后再次完成会重新计时）` : "";
   $("due-at").value = localInput(task?.due_at); $("starts-at").value = localInput(task?.starts_at); $("ends-at").value = localInput(task?.ends_at);
   toggleDates(); $("task-dialog").showModal();
 }
@@ -350,7 +451,7 @@ document.addEventListener("click", event => { if (!event.target.closest(".add-co
 document.addEventListener("keydown", event => { if (event.key === "Escape" && !$("add-menu").hidden) { closeAddMenu(); $("add-task").focus(); } });
 $("add-task").onclick = startAdd;
 $("sync-state").onclick = refresh;
-$("sources-button").onclick = () => { renderSources(); $("sources-dialog").showModal(); };
+$("sources-button").onclick = () => { renderSources(); $("sources-dialog").showModal(); checkCollector(); };
 document.querySelectorAll(".close-dialog").forEach(button => button.onclick = () => button.closest("dialog").close());
 $("task-form").onsubmit = async event => {
   event.preventDefault(); $("save-task").disabled = true; $("task-error").textContent = "";
@@ -370,7 +471,7 @@ $("task-form").onsubmit = async event => {
 };
 $("confirm-delete").onclick = async () => {
   $("confirm-delete").disabled = true;
-  try { await api(`/api/tasks/${deleting.id}`, "DELETE", {revision: deleting.revision}); $("delete-dialog").close(); notice("任务已删除"); await refresh(); }
+  try { await api(`/api/tasks/${deleting.id}`, "DELETE", {revision: deleting.revision}); $("delete-dialog").close(); notice("任务已删除"); await refresh(); if($("archive-dialog").open) await loadArchive(); }
   catch (error) { notice(error.message); }
   finally { $("confirm-delete").disabled = false; }
 };

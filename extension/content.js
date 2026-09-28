@@ -1,21 +1,61 @@
 (() => {
-  const source={"smartestu.cn":"smartestu","www.ketangpai.com":"ketangpai","mooc2-ans.chaoxing.com":"chaoxing"}[location.hostname];
+  const source=location.hostname==="smartestu.cn"?"smartestu":location.hostname==="www.ketangpai.com"?"ketangpai":/(^|\.)chaoxing\.com$/.test(location.hostname)?"chaoxing":null;
   if(!source) return;
-  let seen=false;
+  let seen=false,running=false,navigated=false,lastDocument="",managed=false;
+  const send=(tasks,error)=>chrome.runtime.sendMessage({type:"capture",source,tasks,...(error?{error}:{})}).catch(()=>{});
   window.addEventListener("message",event=>{
     if(event.source!==window || event.origin!==location.origin || event.data?.kind!=="campus-assignments-v1" || event.data.source!==source) return;
     if(!Array.isArray(event.data.tasks) || event.data.tasks.length>1000) return;
-    seen=true;
-    chrome.runtime.sendMessage({type:"capture",source,tasks:event.data.tasks,error:event.data.error}).catch(()=>{});
+    seen=true;send(event.data.tasks,event.data.error);
   });
-  // Fail closed: never mistake a login page or an unrecognized list for zero homework.
+  async function readLearning() {
+    if(source!=="chaoxing" || running) return;
+    const listRoute=/\/work\/(list|all-task)(?:\?|$)/.test(location.href);
+    if(!listRoute) {
+      const tab=[...document.querySelectorAll("a[data-url]")].find(node=>node.textContent.trim()==="作业");
+      if(tab && managed && !navigated) {navigated=true;seen=true;tab.click();}
+      return;
+    }
+    running=true;
+    try {
+      const first=CampusParsers.chaoxing(document,location.href);
+      if(first===null) return;
+      const signature=JSON.stringify(first);
+      if(signature===lastDocument) return;
+      const collected=new Map(first.map(task=>[task.external_id,task]));
+      const pageNumbers=[...document.querySelectorAll("#page li")].map(node=>Number(node.textContent.trim())).filter(Number.isSafeInteger);
+      const total=Math.max(1,...pageNumbers);
+      if(total>50) throw new Error("学习通作业超过 50 页，请分课程同步");
+      for(let page=1;page<=total;page++) {
+        const url=new URL(location.href);
+        if(page===Number(url.searchParams.get("pageNum") || 1)) continue;
+        url.searchParams.set("pageNum",page);
+        const response=await fetch(url,{credentials:"same-origin",signal:AbortSignal.timeout(15000)});
+        if(!response.ok) throw new Error(`学习通第 ${page} 页读取失败，请重新同步`);
+        const parsed=CampusParsers.chaoxing(new DOMParser().parseFromString(await response.text(),"text/html"),url.href);
+        if(parsed===null) throw new Error(`学习通第 ${page} 页无法识别，请确认登录状态`);
+        for(const task of parsed) collected.set(task.external_id,task);
+      }
+      seen=true;const result=await send([...collected.values()]);
+      if(result?.error) throw new Error(result.error);
+      lastDocument=signature;
+    } catch(error) {seen=true;send([],error.message);}
+    finally {running=false;}
+  }
+  function observe() {
+    if(source!=="chaoxing") return;
+    readLearning();let timer;
+    new MutationObserver(()=>{clearTimeout(timer);timer=setTimeout(readLearning,600);}).observe(document.body,{childList:true,subtree:true,characterData:true});
+  }
+  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",observe,{once:true});else observe();
+  chrome.runtime.sendMessage({type:"collection-context"}).then(result=>{managed=!!result?.managed;readLearning();}).catch(()=>{});
+  chrome.runtime.onMessage.addListener(message=>{if(message.type==="read-current") {lastDocument="";readLearning();}});
   setTimeout(()=>{
-    if(seen || window.top!==window) return;
+    if(seen || !managed || (window.top!==window && source!=="chaoxing")) return;
     const text=document.body?.innerText || "";
     const login=/登录|登 录/.test(text) && !!document.querySelector('input[type="password"]');
-    const error=login ? "登录已失效，请在 Edge 中重新登录此教学网站" : source==="chaoxing"
-      ? "学习通适配器待验证：需要读取登录后的作业列表，目前未自动导入"
-      : "未识别到作业列表，请打开作业栏目；分页或折叠内容需要加载后才能导入";
-    chrome.runtime.sendMessage({type:"capture",source,tasks:[],error}).catch(()=>{});
+    send([],login?"登录已失效，请在 Edge 中重新登录此教学网站":source==="chaoxing"
+      ?"学习通尚未识别到作业列表：请进入课程的“作业”栏目后再同步；如有权限提示，请允许扩展读取学习通页面"
+      :"未识别到作业列表，请打开作业栏目；分页或折叠内容需要加载后才能导入");
   },25000);
 })();

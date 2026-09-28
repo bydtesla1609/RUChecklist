@@ -38,13 +38,14 @@ $("settings").onsubmit=async event=>{
     for(const [source,host] of Object.entries(sourceHosts)) {
       if(!$(source).value.trim()) continue;
       const course=new URL($(source).value.trim());
-      if(course.protocol!=="https:" || course.hostname!==host || course.username || course.password) throw new Error(`作业页需使用 https://${host} 的地址`);
+      if(course.protocol!=="https:" || (source==="chaoxing"?!/(^|\.)chaoxing\.com$/.test(course.hostname):course.hostname!==host) || course.username || course.password) throw new Error(`作业页需使用 https://${host} 的地址`);
       sourceURLs[source]=course.href;
     }
     const permitted=await chrome.permissions.request({origins:[`${url.origin}/*`]});
     if(!permitted) throw new Error("需要允许扩展连接你指定的看板");
-    await chrome.storage.local.set({boardURL:url.origin,token:$("token").value.trim(),enabled:$("enabled").checked,sourceURLs});
-    await chrome.runtime.sendMessage({type:"configure"});
+    await chrome.storage.local.set({boardURL:url.origin,token:$("token").value.trim(),enabled:$("enabled").checked,sourceURLs,importCache:{}});
+    const result=await chrome.runtime.sendMessage({type:"configure"});
+    if(result?.error) throw new Error(result.error);
     localStorage.removeItem(draftKey);
     $("draft-state").textContent="设置已生效。";
     $("result").textContent="已保存。请点击“立即打开作业页”进行首次导入。";

@@ -22,13 +22,13 @@
   <aside class="sidebar">
     <a class="brand" href="/" aria-label="大学任务看板首页"><span class="brand-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M12 1.5C13.8 8.4 15.6 10.2 22.5 12 15.6 13.8 13.8 15.6 12 22.5 10.2 15.6 8.4 13.8 1.5 12 8.4 10.2 10.2 8.4 12 1.5Z"/></svg></span><span>大学任务看板<small>CAMPUS BOARD</small></span></a>
     <p class="nav-heading">我的任务</p><nav id="categories" aria-label="任务分类"></nav>
-    <div class="sidebar-bottom"><div class="focus-note"><span class="eyebrow">ONE THING AT A TIME</span><p>慢慢来，<br>每一步都算数。</p><span class="orbit" aria-hidden="true">✦</span></div><button id="sources-button" class="nav-button">↻ <span>作业来源与同步</span></button><button id="logout" class="nav-button">↗ <span>退出登录</span></button></div>
+    <div class="sidebar-bottom"><div class="focus-note"><span class="eyebrow">ONE THING AT A TIME</span><p>慢慢来，<br>每一步都算数。</p><span class="orbit" aria-hidden="true">✦</span></div><button id="archive-button" class="nav-button" aria-label="归档处">▤ <span>归档处</span></button><button id="sources-button" class="nav-button">↻ <span>作业来源与同步</span></button><button id="logout" class="nav-button">↗ <span>退出登录</span></button></div>
   </aside>
   <main>
     <header class="topbar"><div><span class="eyebrow">我的大学 · 任务空间</span><p id="today"></p></div><button id="sync-state" class="sync-state" title="立即刷新" aria-live="polite">正在连接…</button></header>
     <section class="heading"><div><p class="eyebrow section-kicker">MAKE ROOM FOR WHAT MATTERS</p><h1 id="view-title">全部任务</h1><p class="muted">把精力留给正在做的事。</p></div><div class="add-control"><button id="add-task" class="primary" aria-expanded="false"><span aria-hidden="true">＋</span> 添加任务</button><div id="add-menu" class="add-menu" hidden aria-label="选择任务板块"></div></div></section>
     <section class="summary" aria-label="任务概况"><div><span>待完成</span><strong id="count-open">0</strong><small>保持自己的节奏</small><span class="stat-art" aria-hidden="true">◌</span></div><div><span>未来 7 天到期 / 结束</span><strong id="count-soon">0</strong><small>为重要的事留时间</small><span class="stat-art" aria-hidden="true">↗</span></div><div><span>已逾期</span><strong id="count-overdue">0</strong><small>重新安排，也是一种进展</small><span class="stat-art" aria-hidden="true">⌁</span></div><div><span>已完成</span><strong id="count-done">0</strong><small>每一份投入都有回响</small><span class="stat-art" aria-hidden="true">✓</span></div></section>
-    <div class="board-caption"><h2>任务看板 <span class="caption-en">YOUR FLOW</span></h2><span>按截止 / 结束时间排序 · 北京时间</span></div>
+    <div class="board-caption"><h2>任务看板 <span class="caption-en">YOUR FLOW</span></h2><span>待办按截止 / 结束时间排序 · 北京时间</span></div>
     <div id="board" class="board" aria-live="polite"></div>
     <p id="load-error" class="error" role="alert"></p>
   </main>
@@ -48,7 +48,7 @@
     <div id="deadline-field"><label for="due-at">截止时间（DDL）</label><input id="due-at" type="datetime-local"></div>
     <div id="range-fields" class="date-range" hidden><div><label for="starts-at">开始时间</label><input id="starts-at" type="datetime-local"></div><div><label for="ends-at">结束时间</label><input id="ends-at" type="datetime-local"></div></div>
     <p class="hint">以上时间均为北京时间（UTC+8）。</p>
-    <label for="status">进度</label><select id="status"><option value="todo">待开始</option><option value="doing">进行中</option><option value="done">已完成</option></select>
+    <p id="task-completed" class="hint" hidden></p><label for="status">进度</label><select id="status"><option value="todo">待开始</option><option value="doing">进行中</option><option value="done">已完成</option></select>
     <p id="task-error" class="error" role="alert"></p>
     <div class="dialog-actions"><button type="button" class="secondary close-dialog">取消</button><button id="save-task" class="primary" type="submit">保存任务</button></div>
   </form>
@@ -58,10 +58,25 @@
   <p class="muted">看板数据保存在服务器。设备打开同一地址后，每 6 秒刷新一次。</p>
   <div id="sources-list"></div>
   <p id="storage-state" class="hint"></p>
-  <div class="connection-note"><strong>Edge 作业导入</strong><p>需要安装项目中的 Edge 扩展并完成配对。网站未连接、登录失效或页面无法识别时，将在这里显示状态。</p><p>浏览器关闭或电脑休眠时，扩展不会采集新作业。</p></div>
+  <div class="connection-note"><strong>Edge 作业导入</strong><p id="collector-state" role="status">正在检查此浏览器的扩展…</p>
+    <div id="collector-controls" hidden><div class="collector-actions"><button id="collector-connect" class="primary">连接此看板</button><button id="collector-scan" class="secondary">立即同步</button><button id="collector-options" class="text-button">扩展设置</button></div><label class="collector-toggle"><input id="collector-enabled" type="checkbox">每 15 分钟自动检查</label></div>
+    <p>扩展在已登录的 Edge 中读取作业标题、时间和完成状态，只有变化的任务会更新。手机可查看同步结果；电脑休眠或 Edge 关闭时暂停采集。</p></div>
+  <details id="manual-pair"><summary>手动配对 / 其他看板地址</summary>
   <button id="pair" class="secondary">生成扩展配对码</button><p class="hint">生成新码会使旧的配对码失效。</p>
   <div id="pair-result" hidden><label for="pair-url">看板地址</label><input id="pair-url" readonly><label for="pair-code">配对码（仅供导入）</label><input id="pair-code" readonly></div>
+  </details>
   <p id="source-error" class="error" role="alert"></p>
+</dialog>
+<dialog id="archive-dialog">
+  <div class="dialog-heading"><div><p class="eyebrow">TASK ARCHIVE</p><h2>归档处</h2></div><button class="icon-button close-dialog" aria-label="关闭归档">×</button></div>
+  <p class="muted">完成满 7 天的任务自动移入这里，保留原始时间和全部详细信息。</p>
+  <nav id="archive-categories" class="archive-categories" aria-label="归档分类"></nav>
+  <div id="archive-list"></div><p id="archive-error" class="error" role="alert"></p>
+  <button id="archive-more" class="secondary" hidden>加载更多</button>
+</dialog>
+<dialog id="archive-detail-dialog">
+  <div class="dialog-heading"><h2>任务详情</h2><button class="icon-button close-dialog" aria-label="关闭详情">×</button></div>
+  <div id="archive-detail"></div>
 </dialog>
 <dialog id="delete-dialog"><h2>删除这项任务？</h2><p>从教学网站导入的任务，删除后不会再次自动加入。</p><div class="dialog-actions"><button class="secondary close-dialog">取消</button><button id="confirm-delete" class="danger">删除任务</button></div></dialog>
 <div id="toast" class="toast" role="status" hidden></div>

@@ -16,6 +16,8 @@ const FIELDS = ["category", "title", "content", "location", "todos", "links", "a
 const stored = (task, field) => ["todos","links","attachments"].includes(field) ? JSON.stringify(task[field]) : task[field];
 const FILE_LIMIT=10*1024*1024, STORAGE_LIMIT=100*1024*1024, CHUNK_SIZE=512*1024;
 const now = () => new Date().toISOString();
+const archiveCutoff = () => new Date(Date.now()-7*86400000).toISOString();
+const completedAt = (status,previous,stamp) => status==="done" ? (previous?.status==="done" && previous.completed_at ? previous.completed_at : stamp) : null;
 const randomToken = () => [...crypto.getRandomValues(new Uint8Array(24))].map(b => b.toString(16).padStart(2,"0")).join("");
 export async function digest(text) { return [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))].map(b => b.toString(16).padStart(2,"0")).join(""); }
 function equal(a, b) { if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false; let diff=0; for(let i=0;i<a.length;i++) diff |= a.charCodeAt(i)^b.charCodeAt(i); return diff===0; }
@@ -108,19 +110,25 @@ async function importTasks(request, db, sources) {
   const count=payload.task_count ?? tasks.length;
   if(!Number.isInteger(count) || count<0 || count>10000) fail(400,"作业数量不正确");
   const stamp=now();
+  const remoteChanged="excluded.source_status IS NOT NULL AND tasks.source_status IS NOT excluded.source_status";
+  const nextStatus=`CASE WHEN ${remoteChanged} THEN excluded.source_status ELSE tasks.status END`;
   const statements=tasks.map(item => {
     if(!item || typeof item!=="object" || typeof item.external_id!=="string" || !item.external_id || item.external_id.length>250) fail(400,"缺少稳定的作业编号");
-    const task=validate({...item,category:"作业",status:"todo"},true), course=item.course || "";
+    if(item.status!==undefined && !STATUSES.includes(item.status)) fail(400,"作业完成状态不正确");
+    const task=validate({...item,category:"作业",status:item.status || "todo"},true), course=item.course || "";
     if(typeof course!=="string" || course.length>300) fail(400,"课程名称格式不正确");
-    return db.prepare(`INSERT INTO tasks(id,category,title,content,due_at,status,source,external_id,source_url,course,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source,external_id) DO UPDATE SET
+    return db.prepare(`INSERT INTO tasks(id,category,title,content,due_at,status,source,external_id,source_url,course,created_at,updated_at,completed_at,source_status)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source,external_id) DO UPDATE SET
       title=CASE WHEN instr(tasks.overrides,'"title"')=0 AND instr(tasks.overrides,'"content"')=0 THEN excluded.title ELSE tasks.title END,
       content=CASE WHEN instr(tasks.overrides,'"title"')=0 AND instr(tasks.overrides,'"content"')=0 THEN excluded.content ELSE tasks.content END,
-      due_at=CASE WHEN tasks.category='作业' AND instr(tasks.overrides,'"due_at"')=0 THEN excluded.due_at ELSE tasks.due_at END,
+      due_at=CASE WHEN tasks.category='作业' AND instr(tasks.overrides,'"due_at"')=0 THEN coalesce(excluded.due_at,tasks.due_at) ELSE tasks.due_at END,
+      status=${nextStatus},
+      completed_at=CASE WHEN (${nextStatus})='done' THEN CASE WHEN tasks.status='done' AND tasks.completed_at IS NOT NULL THEN tasks.completed_at ELSE excluded.updated_at END ELSE NULL END,
+      source_status=coalesce(excluded.source_status,tasks.source_status),
       course=excluded.course, source_url=excluded.source_url, updated_at=excluded.updated_at, revision=tasks.revision+1
       WHERE tasks.deleted=0 AND ((instr(tasks.overrides,'"title"')=0 AND instr(tasks.overrides,'"content"')=0 AND tasks.title IS NOT excluded.title)
-      OR (tasks.category='作业' AND instr(tasks.overrides,'"due_at"')=0 AND tasks.due_at IS NOT excluded.due_at) OR tasks.course IS NOT excluded.course OR tasks.source_url IS NOT excluded.source_url)`)
-      .bind(crypto.randomUUID(),"作业",task.title,task.content,task.due_at,"todo",source,item.external_id,sourceURL(source,item.source_url,sources[source].url),course,stamp,stamp);
+      OR (tasks.category='作业' AND instr(tasks.overrides,'"due_at"')=0 AND excluded.due_at IS NOT NULL AND tasks.due_at IS NOT excluded.due_at) OR tasks.course IS NOT excluded.course OR tasks.source_url IS NOT excluded.source_url OR (${remoteChanged}))`)
+      .bind(crypto.randomUUID(),"作业",task.title,task.content,task.due_at,task.status,source,item.external_id,sourceURL(source,item.source_url,sources[source].url),course,stamp,stamp,completedAt(task.status,null,stamp),item.status ?? null);
   });
   statements.push(db.prepare("UPDATE sources SET last_seen=?,task_count=?,error=? WHERE id=?").bind(stamp,count,error || null,source));
   const result=await db.batch(statements);
@@ -230,11 +238,23 @@ async function route(request, env) {
     return json({ok:true},200,{"Set-Cookie":cookie(request,"",0)});
   }
   if(path==="/api/board" && method==="GET") {
-    const [tasks,sources,files,storage]=await db.batch([db.prepare("SELECT * FROM tasks WHERE deleted=0 ORDER BY created_at DESC"),db.prepare("SELECT * FROM sources"),
+    const [tasks,sources,files,storage]=await db.batch([db.prepare("SELECT * FROM tasks WHERE deleted=0 AND (status<>'done' OR completed_at IS NULL OR completed_at>?) ORDER BY created_at DESC").bind(archiveCutoff()),db.prepare("SELECT * FROM sources"),
       db.prepare("SELECT id,name,type,size FROM files WHERE id IN (SELECT value FROM tasks,json_each(tasks.attachments) WHERE tasks.deleted=0)"),db.prepare("SELECT coalesce(sum(size),0) AS used FROM files")]);
     const configuration=configuredSources(env);
     const byId=new Map(files.results.map(file=>[file.id,file]));
     return json({tasks:tasks.results.map(task=>expose(task,byId)),sources:sources.results.map(source=>({...source,...configuration[source.id]})),storage:{used:storage.results[0].used,limit:STORAGE_LIMIT,file_limit:FILE_LIMIT},server_time:now()});
+  }
+  if(path==="/api/archive" && method==="GET") {
+    const category=url.searchParams.get("category") || "全部", offset=Number(url.searchParams.get("offset") || 0);
+    if(category!=="全部" && !CATEGORIES.includes(category)) fail(400,"归档分类不正确");
+    if(!Number.isSafeInteger(offset) || offset<0 || offset>1000000) fail(400,"归档页码不正确");
+    const where="deleted=0 AND status='done' AND completed_at<=?"+(category==="全部"?"":" AND category=?");
+    const values=[archiveCutoff(),...(category==="全部"?[]:[category])];
+    const [items,count]=await db.batch([
+      db.prepare(`SELECT id,title,category,due_at,starts_at,ends_at,completed_at,revision FROM tasks WHERE ${where} ORDER BY completed_at DESC,id DESC LIMIT 100 OFFSET ?`).bind(...values,offset),
+      db.prepare(`SELECT count(*) AS total FROM tasks WHERE ${where}`).bind(...values)
+    ]);
+    return json({tasks:items.results,total:count.results[0].total});
   }
   if(path==="/api/collector-token" && method==="POST") {
     const token=randomToken();
@@ -244,11 +264,16 @@ async function route(request, env) {
   if(path==="/api/tasks" && method==="POST") {
     const task=validate(await body(request)), id=crypto.randomUUID(), stamp=now();
     await fileReferences(task.attachments,db);
-    const row=await db.prepare(`INSERT INTO tasks(id,${FIELDS.join(",")},created_at,updated_at)
-      VALUES (${Array(FIELDS.length+3).fill("?").join(",")}) RETURNING *`).bind(id,...FIELDS.map(f=>stored(task,f)),stamp,stamp).first();
+    const row=await db.prepare(`INSERT INTO tasks(id,${FIELDS.join(",")},created_at,updated_at,completed_at)
+      VALUES (${Array(FIELDS.length+4).fill("?").join(",")}) RETURNING *`).bind(id,...FIELDS.map(f=>stored(task,f)),stamp,stamp,completedAt(task.status,null,stamp)).first();
     return json(await withFiles(row,db),201);
   }
   const match=path.match(/^\/api\/tasks\/([a-zA-Z0-9-]{1,50})$/);
+  if(match && method==="GET") {
+    const row=await db.prepare("SELECT * FROM tasks WHERE id=? AND deleted=0").bind(match[1]).first();
+    if(!row) fail(404,"任务已不存在");
+    return json(await withFiles(row,db));
+  }
   if(match && ["PATCH","DELETE"].includes(method)) {
     const id=match[1], data=await body(request);
     if(!Number.isInteger(data.revision)) fail(400,"缺少任务版本，请刷新重试");
@@ -266,8 +291,8 @@ async function route(request, env) {
     const task=validate({...expose(previous),...editable},!!previous.source);
     await fileReferences(task.attachments,db);
     const overrides=[...new Set([...JSON.parse(previous.overrides),...Object.keys(editable).filter(f=>stored(task,f)!==previous[f])])];
-    const updated=await db.prepare(`UPDATE tasks SET ${FIELDS.map(f=>`${f}=?`).join(",")},overrides=?,revision=revision+1,updated_at=?
-      WHERE id=? AND revision=? AND deleted=0 RETURNING *`).bind(...FIELDS.map(f=>stored(task,f)),JSON.stringify(overrides),now(),id,data.revision).first();
+    const updated=await db.prepare(`UPDATE tasks SET ${FIELDS.map(f=>`${f}=?`).join(",")},overrides=?,revision=revision+1,updated_at=?,completed_at=?
+      WHERE id=? AND revision=? AND deleted=0 RETURNING *`).bind(...FIELDS.map(f=>stored(task,f)),JSON.stringify(overrides),now(),completedAt(task.status,previous,now()),id,data.revision).first();
     if(!updated) fail(409,"此任务已在另一设备更新，请关闭编辑窗口并重新打开");
     return json(await withFiles(updated,db));
   }
