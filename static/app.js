@@ -316,12 +316,13 @@ function render() {
 }
 function calendarDates(task) {
   if(task.category==="作业") {
-    const day=localInput(task.status==="done"?task.completed_at:task.due_at).slice(0,10);
+    const day=localInput(task.due_at).slice(0,10);
     return [day,day];
   }
   return [localInput(task.starts_at || task.ends_at).slice(0,10),localInput(task.ends_at || task.starts_at).slice(0,10)];
 }
 function onCalendarDay(task,day) {
+  if(task.category==="作业" && task.status==="done") return false;
   const [start,end]=calendarDates(task);
   return day ? !!start && start<=day && day<=end : !start;
 }

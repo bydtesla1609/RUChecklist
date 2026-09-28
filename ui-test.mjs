@@ -193,12 +193,21 @@ try {
   await page.waitForFunction(()=>!document.querySelector("article[data-busy]"));
   let completed=database.prepare("SELECT completed_at,due_at,status FROM tasks WHERE id=?").get(homeworkId);
   assert.equal(completed.status,"done");assert.ok(completed.completed_at);assert.equal(completed.due_at,"2026-10-02T15:59:00.000Z");
+  assert.equal(await homework.count(),0);
+  assert.equal(await page.locator(".calendar .day-task").filter({hasText:"数据结构"}).count(),0);
   await page.getByRole("button",{name:"今天",exact:true}).click();
+  assert.equal(await page.locator(`article[data-task-id="${homeworkId}"]`).count(),0);
+  assert.equal(await page.locator(".calendar .day-task").filter({hasText:"完成较"}).count(),0);
+  await page.evaluate(()=>calendarSelect("2026-09-24"));
+  assert.equal(await page.locator(".day-list .task-title").textContent(),"校园夜跑计划");
+  await category(page,"作业").click();
   const completedCard=page.locator(`article[data-task-id="${homeworkId}"]`);await completedCard.waitFor();
   await saved(page,()=>completedCard.locator(".task-status").selectOption("todo"));
   await page.waitForFunction(()=>!document.querySelector("article[data-busy]"));
   assert.equal(database.prepare("SELECT completed_at FROM tasks WHERE id=?").get(homeworkId).completed_at,null);
+  await category(page,"日历看板").click();
   await page.evaluate(()=>{calendarMonth="2026-10";selectedDay="2026-10-02";renderCalendar();});
+  assert.equal(await homework.count(),1);
   // A failed direct status update preserves the task and shows its actual state.
   await page.route(`**/api/tasks/${homeworkId}`,route=>route.fulfill({status:409,contentType:"application/json",body:JSON.stringify({error:"任务已在其他设备修改，请刷新后重试"})}),{times:1});
   await homework.locator(".task-status").selectOption("doing");
