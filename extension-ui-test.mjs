@@ -75,6 +75,10 @@ try {
   assert.match(await page.locator("#cloud-result").textContent(),/未获得/);assert.equal(await page.evaluate(()=>runtimeMessages.includes("cloud-authorize")),false);
   await page.evaluate(()=>globalThis.allowPermission=true);await page.locator("#cloud-authorize").click();
   await page.waitForFunction(()=>document.getElementById("cloud-result").textContent.includes("已启用"));assert.equal(await page.evaluate(()=>runtimeMessages.includes("cloud-authorize")),true);
+  await page.evaluate(()=>{chrome.runtime.sendMessage=async()=>undefined;chrome.runtime.reload=()=>{window.testReloaded=true;};});
+  await page.locator("#cloud-authorize").click();await page.waitForFunction(()=>document.getElementById("cloud-result").textContent.includes("未确认授权"));
+  await page.locator("#reload-extension").click();assert.equal(await page.evaluate(()=>window.testReloaded),true);
+  assert.equal((await page.evaluate(()=>chrome.storage.local.get([]))).reopenAfterReload,true);
   const captureContext=await browser.newContext();
   await captureContext.route("**/*",route=>route.fulfill(route.request().url().includes("/api/")?{contentType:"application/json",body:JSON.stringify({studentCourseHomeworkDTOList:[{id:1,name:"捕获验证",submission_status:"completed"}]})}:{contentType:"text/html",body:"<!doctype html><body>测试</body>"}));
   const capture=await captureContext.newPage();await capture.goto("https://smartestu.cn/assignment");

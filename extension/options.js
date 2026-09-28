@@ -1,5 +1,6 @@
 const $=id=>document.getElementById(id);
 $("version").textContent=`· v${chrome.runtime.getManifest().version}`;
+$("reload-extension").onclick=async()=>{await chrome.storage.local.set({reopenAfterReload:true});chrome.runtime.reload();};
 // Also handles an already-loaded manifest that still opens the old popup.
 if(chrome.extension.getViews({type:"popup"}).includes(window)) {
   chrome.runtime.openOptionsPage().then(()=>window.close());
@@ -65,7 +66,7 @@ $("cloud-authorize").onclick=async()=>{
     if(!allowed)throw new Error("未获得登录授权读取权限，云端采集未启用。");
     $("cloud-authorize").disabled=true;
     const result=await chrome.runtime.sendMessage({type:"cloud-authorize"});
-    if(result?.error)throw new Error(result.error);
+    if(result?.ok!==true)throw new Error(result?.error || "扩展后台未确认授权。请点击顶部“重新加载此扩展”，重新打开后再授权。");
     $("cloud-result").textContent="已启用。正在打开三个作业列表保存授权；加载完成后，到看板点击“云端立即同步”检查结果。";
   }catch(error){$("cloud-result").textContent=error.message;}finally{$("cloud-authorize").disabled=false;}
 };

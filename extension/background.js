@@ -135,4 +135,8 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
 chrome.alarms.onAlarm.addListener(alarm=>{if(alarm.name==="collect") scan().catch(reportError);});
 async function start() {await configure();const {enabled}=await chrome.storage.local.get("enabled");if(enabled) await scan();}
 chrome.runtime.onStartup.addListener(()=>start().catch(reportError));
-chrome.runtime.onInstalled.addListener(()=>start().catch(reportError));
+chrome.runtime.onInstalled.addListener(async()=>{
+  const {reopenAfterReload}=await chrome.storage.local.get("reopenAfterReload");
+  if(reopenAfterReload){await chrome.storage.local.set({reopenAfterReload:false});await chrome.runtime.openOptionsPage();}
+  start().catch(reportError);
+});
