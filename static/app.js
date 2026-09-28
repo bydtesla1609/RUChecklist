@@ -213,9 +213,7 @@ function card(task) {
   const meta = element("div", null, "task-meta");
   meta.append(element("span", task.category, `badge cat-${CATEGORIES.indexOf(task.category)}`),
     element("span", task.source ? sources.find(s => s.id === task.source)?.name || task.source : "手动添加", "source-label"));
-  const title = element("button", task.title, "task-title");
-  title.setAttribute("aria-label", `编辑：${task.title}`);
-  title.onclick = () => openTask(task);
+  const title = element("h3", task.title, "task-title");
   article.append(meta, title);
   if (task.location) article.append(element("p", `⌖ ${task.location}`, "task-location"));
   if (task.course) article.append(element("p", task.course, "course"));
@@ -225,28 +223,21 @@ function card(task) {
   if (task.category === "作业") time.append(element("p", formatTime(task.due_at, true)));
   else time.append(element("p", formatTime(task.starts_at)), element("p", `至 ${formatTime(task.ends_at, true)}`));
   const footer = element("div", null, "task-footer");
-  const select = element("select");
-  select.setAttribute("aria-label", `修改进度：${task.title}`);
-  for (const [value, label] of Object.entries(STATES)) {
-    const option = element("option", label); option.value = value; select.append(option);
-  }
-  select.value = task.status;
-  select.onchange = async () => {
-    if (hasDraft()) { select.value = task.status; notice("请先保存或取消正在编辑的待办事项"); return; }
-    select.disabled = true;
-    try { await api(`/api/tasks/${task.id}`, "PATCH", {status: select.value, revision: task.revision}); await refresh(); }
-    catch (error) { select.value = task.status; notice(error.message); await refresh(); }
-    finally { select.disabled = false; }
-  };
-  footer.append(select);
+  footer.append(element("span", STATES[task.status], "task-status"));
   if (task.source_url) {
     const link = element("a", "查看原作业 ↗");
     link.href = task.source_url; link.target = "_blank"; link.rel = "noopener noreferrer"; footer.append(link);
   }
+  const actions = element("div", null, "task-actions");
+  const edit = element("button", "编辑", "edit-task");
+  edit.type = "button";
+  edit.setAttribute("aria-label", `编辑：${task.title}`);
+  edit.onclick = () => openTask(task);
   const remove = element("button", "删除", "delete-task");
+  remove.type = "button";
   remove.setAttribute("aria-label", `删除：${task.title}`);
   remove.onclick = () => { if (hasDraft()) { notice("请先保存或取消正在编辑的待办事项"); return; } deleting = task; $("delete-dialog").showModal(); };
-  footer.append(remove); article.append(time);
+  actions.append(edit, remove); footer.append(actions); article.append(time);
   let current = task;
   const list = checklist(task.todos, async todos => {
     current = await api(`/api/tasks/${task.id}`, "PATCH", {todos, revision: current.revision});

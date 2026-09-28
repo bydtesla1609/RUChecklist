@@ -99,6 +99,11 @@ try {
   await page.waitForFunction(() => document.querySelector(".todo-text")?.textContent === "整理笔记");
   assert.deepEqual(await card.locator(".todo-text").allTextContents(), ["整理笔记", "读论文并标注"]);
   await card.locator(".task-title").click();
+  assert.equal(await page.locator("#task-dialog").isVisible(), false);
+  assert.equal(await card.locator(".task-title").evaluate(node => node.tagName), "H3");
+  assert.equal(await card.locator("select").count(), 0);
+  assert.deepEqual(await card.locator(".task-actions button").allTextContents(), ["编辑", "删除"]);
+  await card.locator(".edit-task").click();
   assert.equal(await page.locator("#task-location").inputValue(), "图书馆 · 三层");
   await page.locator("#task-todos .todo-text").first().click();
   await page.locator("#task-todos .todo-edit").fill("写一页阅读小结");
@@ -109,7 +114,7 @@ try {
   await card.locator(".todo-text").first().click(); await card.locator(".todo-edit").fill("未保存的本地草稿");
   await phone.locator("#sync-state").click();
   await mobileCard.locator(".todo-text").filter({hasText: "写一页阅读小结"}).waitFor();
-  await mobileCard.locator(".task-title").click(); await phone.locator("#task-location").fill("明德楼 · 302");
+  await mobileCard.locator(".edit-task").click(); await phone.locator("#task-location").fill("明德楼 · 302");
   await phone.locator("#save-task").click(); await phone.locator("#task-dialog").waitFor({state: "hidden"});
   const conflict = page.waitForResponse(r => r.url().includes("/api/tasks/") && r.request().method() === "PATCH");
   await card.getByRole("button", {name: "确认待办修改"}).click(); assert.equal((await conflict).status(), 409);
