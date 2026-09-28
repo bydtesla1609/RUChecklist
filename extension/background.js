@@ -1,8 +1,17 @@
 const SOURCES={smartestu:"https://smartestu.cn/assignment",ketangpai:"https://www.ketangpai.com/",chaoxing:"https://mooc2-ans.chaoxing.com/"};
+SOURCES.ruc_courses="https://jw.ruc.edu.cn/Njw2017/index.html#/student/student-course-list/";
+SOURCES.ruc_exams="https://jw.ruc.edu.cn/Njw2017/index.html#/student/test-arrange-search/";
 const BOARD_ORIGIN="https://campus-task-board.pages.dev";
 if(typeof importScripts==="function") importScripts("cloud-routes.js");
 function sourceFor(url) {
   const host=new URL(url).hostname;
+  if(host==="jw.ruc.edu.cn") {
+    const parsed=new URL(url);
+    if(parsed.pathname!=="/Njw2017/index.html")return null;
+    if(/^#\/student\/test-arrange-search(?:\/|$)/.test(parsed.hash))return "ruc_exams";
+    if(/^#\/student\/student-course-list(?:\/|$)/.test(parsed.hash))return "ruc_courses";
+    return null;
+  }
   return host==="smartestu.cn"?"smartestu":host==="www.ketangpai.com"?"ketangpai":/(^|\.)chaoxing\.com$/.test(host)?"chaoxing":null;
 }
 let queue=Promise.resolve(),cloudQueue=Promise.resolve(),scanning=null;
@@ -51,7 +60,7 @@ async function upload(message,sender) {
   const {boardURL,token,enabled,importCache={},sourceResults={}}=await chrome.storage.local.get(["boardURL","token","enabled","importCache","sourceResults"]);
   if(!enabled || !boardURL || !token) return {skipped:true};
   const tasks=message.tasks;
-  if(!Array.isArray(tasks) || tasks.length>1000 || tasks.some(task=>!task || typeof task.external_id!=="string")) throw new Error("任务列表格式不正确");
+  if(!Array.isArray(tasks) || tasks.length>3000 || tasks.some(task=>!task || typeof task.external_id!=="string")) throw new Error("任务列表格式不正确");
   const cache=importCache[source] || {},changedTasks=tasks.filter(task=>cache[task.external_id]!==JSON.stringify(task));
   const batches=[];for(let i=0;i<changedTasks.length;i+=30) batches.push(changedTasks.slice(i,i+30));
   if(!batches.length) batches.push([]);
@@ -68,7 +77,7 @@ async function upload(message,sender) {
   await chrome.action.setBadgeText({text:Object.values(sourceResults).some(value=>value.error)?"!":""});
   return {ok:true,changed};
 }
-async function performScan(force=false) {
+async function performScan(force=false,academicOnly=false) {
   const {enabled,boardURL,token,managedTabs={},sourceURLs={}}=await chrome.storage.local.get(["enabled","boardURL","token","managedTabs","sourceURLs"]);
   if(!boardURL || !token) throw new Error("请先连接看板");
   if(!enabled && !force) throw new Error("自动同步已暂停，请先开启同步");
@@ -76,6 +85,7 @@ async function performScan(force=false) {
   if(!response.ok) throw new Error("无法读取作业来源，请重新连接看板");
   const configuration=(await response.json()).sources;
   for(const [source,fallback] of Object.entries(SOURCES)) {
+    if(academicOnly && !source.startsWith("ruc_"))continue;
     const candidate=new URL(sourceURLs[source] || configuration?.[source]?.url || fallback);
     if(candidate.protocol!=="https:" || candidate.username || candidate.password || sourceFor(candidate.href)!==source) throw new Error(`${source} 作业页地址不正确`);
     const url=candidate.href;
@@ -113,6 +123,7 @@ async function boardControl(message,sender) {
     await chrome.storage.local.set({enabled:message.enabled});return configure();
   }
   if(message.command==="scan") return scan();
+  if(message.command==="academic-scan")return performScan(false,true);
   throw new Error("未知操作");
 }
 chrome.runtime.onMessage.addListener((message,sender,reply)=>{

@@ -1,10 +1,11 @@
 "use strict";
 const $ = id => document.getElementById(id);
-const CATEGORIES = ["作业", "科研", "竞赛", "活动", "组织"];
+const CATEGORIES = ["作业", "课程", "考试", "活动", "会议"];
 const STATES = {todo: "待开始", doing: "进行中", done: "已完成"};
 let tasks = [], sources = [], categoryFilter = "全部", editing = null, deleting = null;
 let refreshSequence = 0, lastPayload = "", toastTimer, taskCategory = "作业", draftTodos = [];
 let draftAttachments = [], uploading = false;
+let scheduleWeek="", scheduleDay="";
 let collectorState=null, cloudState=null, syncing=false;
 let archiveCategory="全部", archiveItems=[], archiveTotal=0, archiveSequence=0;
 let selectedDay = localInput(new Date()).slice(0,10), calendarMonth = selectedDay.slice(0,7);
@@ -202,11 +203,24 @@ function checklist(initial, persist, inDialog = false) {
   }
   draw(); return root;
 }
+function navigationIcon(category) {
+  const paths={
+    "全部":"M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z",
+    "作业":"M8 3h8l3 3v15H5V3h3 M8 11l2 2 5-5 M8 17h7",
+    "课程":"M3 5c3-1 6-1 9 1 3-2 6-2 9-1v14c-3-1-6-1-9 1-3-2-6-2-9-1z M12 6v14",
+    "考试":"M8 3h8 M12 3v3 M18 6l2-2 M12 10v5l3 2 M21 15a9 9 0 1 1-18 0 9 9 0 0 1 18 0",
+    "活动":"m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z",
+    "会议":"M15 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0 M5 21v-2a7 7 0 0 1 14 0v2 M19 7a3 3 0 0 1 0 6 M22 20v-2a5 5 0 0 0-3-4"
+  };
+  const svg=document.createElementNS("http://www.w3.org/2000/svg","svg"),path=document.createElementNS(svg.namespaceURI,"path");
+  svg.setAttribute("viewBox","0 0 24 24");svg.setAttribute("aria-hidden","true");svg.setAttribute("class",`nav-icon cat-${CATEGORIES.indexOf(category)}`);
+  path.setAttribute("d",paths[category]);svg.append(path);return svg;
+}
 function renderNavigation() {
   $("categories").replaceChildren(...["全部", ...CATEGORIES].map(category => {
     const button = element("button", null, "nav-button" + (categoryFilter === category ? " active" : ""));
     button.setAttribute("aria-pressed", String(categoryFilter === category));
-    button.append(element("span", "", `category-mark cat-${CATEGORIES.indexOf(category)}`), element("span", category === "全部" ? "日历看板" : category),
+    button.append(navigationIcon(category), element("span", category === "全部" ? "总览" : category),
       element("span", String(tasks.filter(t => t.status !== "done" && (category === "全部" || t.category === category)).length), "count"));
     button.onclick = () => { if (hasDraft()) { notice("请先保存或取消正在编辑的待办事项"); return; } categoryFilter = category; closeAddMenu(); render(); };
     return button;
@@ -220,9 +234,11 @@ function card(task) {
     element("span", task.source ? sources.find(s => s.id === task.source)?.name || task.source : "手动添加", "source-label"));
   const title = element("h3", task.title, "task-title");
   article.append(meta, title);
+  for(const [key,label] of [["teacher","教师"],["seat","座位"],["organizer","组织者"]]) if(task.details?.[key]) article.append(element("p",`${label} · ${task.details[key]}`,"event-detail"));
+  if(task.details?.period) article.append(element("p",`第 ${task.details.week} 周 · ${task.details.period}`,"event-detail"));
   if (task.location) article.append(element("p", `⌖ ${task.location}`, "task-location"));
   if (task.course) article.append(element("p", task.course, "course"));
-  const isOverdue = task.status !== "done" && deadline(task) && new Date(deadline(task)) < new Date();
+  const isOverdue = task.category === "作业" && task.status !== "done" && deadline(task) && new Date(deadline(task)) < new Date();
   const time = element("div", null, "task-time" + (isOverdue ? " overdue" : ""));
   const completedHomework=task.category==="作业" && task.status==="done";
   time.append(element("p", (isOverdue ? "已逾期 · " : "") + (completedHomework ? "完成时间" : task.category === "作业" ? "截止时间" : "起止时间"), "time-label"));
@@ -251,7 +267,7 @@ function card(task) {
   };
   footer.append(status);
   if (task.source_url) {
-    const link = element("a", "查看原作业 ↗");
+    const link = element("a", task.source?.startsWith("ruc_")?"教务原页面 ↗":"查看原作业 ↗");
     link.href = task.source_url; link.target = "_blank"; link.rel = "noopener noreferrer"; footer.append(link);
   }
   const actions = element("div", null, "task-actions");
@@ -270,7 +286,7 @@ function card(task) {
     tasks = tasks.map(value => value.id === current.id ? current : value);
     task = current; lastPayload = "";
   });
-  article.append(list);
+  if(task.category!=="课程" || task.todos.length) article.append(list);
   if (task.attachments?.length || task.links?.length) {
     const resources=element("div", null, "resources");
     resources.append(...(task.attachments || []).map(file=>fileRow(file)));
@@ -282,8 +298,9 @@ function card(task) {
 }
 function render() {
   renderNavigation();
+  document.querySelector(".summary").removeAttribute("data-schedule");
   const visible = tasks.filter(t => categoryFilter === "全部" || categoryFilter === t.category);
-  $("view-title").textContent = categoryFilter === "全部" ? "日历看板" : categoryFilter;
+  $("view-title").textContent = categoryFilter === "全部" ? "总览" : categoryFilter;
   $("add-task").textContent = categoryFilter === "全部" ? "＋ 添加任务" : `＋ 添加${categoryFilter}`;
   const open = visible.filter(t => t.status !== "done");
   $("count-open").textContent = open.length;
@@ -291,9 +308,14 @@ function render() {
   const current = Date.now();
   $("count-soon").textContent = open.filter(t => deadline(t) && new Date(deadline(t)).getTime() >= current && new Date(deadline(t)).getTime() <= current + 7 * 86400000).length;
   $("count-overdue").textContent = open.filter(t => deadline(t) && new Date(deadline(t)).getTime() < current).length;
-  $("board").classList.toggle("calendar-board",categoryFilter==="全部");
-  $("board-caption").hidden=categoryFilter==="全部";
+  $("board").className="board"+(categoryFilter==="全部"?" calendar-board":categoryFilter!=="作业"?" schedule-board":"");
+  document.querySelectorAll(".summary>div").forEach((node,index)=>{
+    node.querySelector("span").textContent=["待完成","未来 7 天到期","已逾期","已完成"][index];
+    node.querySelector("small").textContent=["按截止 / 结束时间从近到远","按截止 / 结束时间从近到远","已过截止 / 结束时间，且尚未完成","按完成时间倒序，超过 7 天自动归档"][index];
+  });
+  $("board-caption").hidden=categoryFilter!=="作业";
   if(categoryFilter==="全部") {renderCalendar();renderSources();return;}
+  if(categoryFilter!=="作业") {renderSchedule(visible);renderSources();return;}
   $("board").replaceChildren(...Object.entries(STATES).map(([state, label]) => {
     const column = element("section", null, `column ${state}`);
     const matching = visible.filter(t => t.status === state).sort((a,b) => state==="done"
@@ -313,6 +335,69 @@ function render() {
     return column;
   }));
   renderSources();
+}
+function shiftDay(day,amount) { return new Date(Date.parse(`${day}T00:00:00Z`)+amount*86400000).toISOString().slice(0,10); }
+function monday(day) { return shiftDay(day,-((new Date(`${day}T00:00:00Z`).getUTCDay()+6)%7)); }
+function shortDay(day) { return `${Number(day.slice(5,7))} 月 ${Number(day.slice(8))} 日`; }
+function scheduleStats(labels,values,hints) {
+  document.querySelector(".summary").dataset.schedule=categoryFilter;
+  document.querySelectorAll(".summary>div").forEach((node,index)=>{
+    node.querySelector("span").textContent=labels[index];node.querySelector("strong").textContent=values[index];node.querySelector("small").textContent=hints[index];
+  });
+}
+function renderSchedule(visible) {
+  const root=$("board"),today=localInput(new Date()).slice(0,10),now=Date.now();
+  const sorted=[...visible].sort((a,b)=>(a.starts_at || "9999").localeCompare(b.starts_at || "9999") || a.id.localeCompare(b.id));
+  root.replaceChildren();
+  if(categoryFilter==="课程") {
+    scheduleWeek ||= monday(today);scheduleDay ||= today;
+    const last=shiftDay(scheduleWeek,6),weekly=sorted.filter(t=>localInput(t.starts_at).slice(0,10)>=scheduleWeek && localInput(t.starts_at).slice(0,10)<=last);
+    scheduleStats(["本周课程","本周课次","本周课时","今天的课"],
+      [new Set(weekly.map(t=>t.title)).size,weekly.length,`${Math.round(weekly.reduce((n,t)=>n+(Date.parse(t.ends_at)-Date.parse(t.starts_at))/3600000,0)*10)/10} h`,sorted.filter(t=>onCalendarDay(t,today)).length],
+      ["按所选周的课程名称统计","每一次上课单独显示","按实际起止时间合计","全部时间均为北京时间"]);
+    const panel=element("section",null,"week-panel"),toolbar=element("div",null,"calendar-toolbar"),controls=element("div",null,"calendar-controls");
+    for(const [label,offset] of [["上一周",-7],["本周",0],["下一周",7]]) {
+      const button=element("button",offset<0?"‹":offset>0?"›":label,"secondary");button.setAttribute("aria-label",label);
+      button.onclick=()=>{if(hasDraft()){notice("请先保存或取消正在编辑的待办事项");return;}scheduleWeek=offset?shiftDay(scheduleWeek,offset):monday(today);scheduleDay=offset?scheduleWeek:today;render();};controls.append(button);
+    }
+    toolbar.append(element("h2",`${shortDay(scheduleWeek)} — ${shortDay(last)}`),controls);panel.append(toolbar);
+    const days=element("div",null,"week-days");
+    for(let i=0;i<7;i++) {
+      const day=shiftDay(scheduleWeek,i),count=weekly.filter(t=>onCalendarDay(t,day)).length;
+      const button=element("button",null,"week-day"+(day===scheduleDay?" selected":""));button.dataset.day=day;
+      button.setAttribute("aria-label",`${day}，${count} 节课`);button.setAttribute("aria-pressed",String(day===scheduleDay));
+      if(day===today)button.setAttribute("aria-current","date");
+      button.append(element("span",`周${"一二三四五六日"[i]}`),element("strong",String(Number(day.slice(8)))),element("small",count?`${count} 节`:"—"));
+      button.onclick=()=>{if(hasDraft()){notice("请先保存或取消正在编辑的待办事项");return;}scheduleDay=day;render();};days.append(button);
+    }
+    panel.append(days);root.append(panel);
+    const agenda=element("section",null,"schedule-agenda"),list=element("div",null,"event-grid");
+    agenda.append(element("h2",`${shortDay(scheduleDay)} · 课程安排`));
+    const matching=weekly.filter(t=>onCalendarDay(t,scheduleDay));
+    for(const task of matching) {
+      const entry=element("div",null,"class-session");
+      entry.append(element("p",`${localInput(task.starts_at).slice(11)} — ${localInput(task.ends_at).slice(11)}`,"session-clock"),card(task));list.append(entry);
+    }
+    if(!matching.length)list.append(element("p","这一天没有课程安排。可切换日期，或在“来源与同步”导入课表。","day-empty"));
+    agenda.append(list);root.append(agenda);return;
+  }
+  const upcoming=sorted.filter(t=>Date.parse(t.ends_at)>=now),past=sorted.filter(t=>Date.parse(t.ends_at)<now);
+  scheduleStats([categoryFilter==="考试"?"待赴考试":"接下来的安排","未来 7 天","今天","已结束"],
+    [upcoming.length,upcoming.filter(t=>Date.parse(t.starts_at)<=now+7*86400000).length,sorted.filter(t=>onCalendarDay(t,today)).length,past.length],
+    ["按开始时间从近到远","未来一周开始的安排","全部时间均为北京时间","按开始时间从近到远"]);
+  function group(items,container) {
+    const groups=new Map();for(const task of items) {const key=localInput(task.starts_at).slice(0,10);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(task);}
+    for(const [day,items] of groups) {
+      const section=element("section",null,`event-group ${categoryFilter==="考试"?"exam-group":categoryFilter==="会议"?"meeting-group":"activity-group"}`);
+      const heading=element("div",null,"event-heading"),delta=Math.round((Date.parse(`${day}T00:00:00Z`)-Date.parse(`${today}T00:00:00Z`))/86400000);
+      heading.append(element("h2",`${shortDay(day)}${day.slice(0,4)!==today.slice(0,4)?` · ${day.slice(0,4)}`:""}`));
+      heading.append(element("span",delta===0?"今天":delta===1?"明天":delta>1?`${delta} 天后`:"已结束","date-pill"));section.append(heading);
+      const list=element("div",null,"event-grid");list.append(...items.map(card));section.append(list);container.append(section);
+    }
+  }
+  group(upcoming,root);
+  if(!upcoming.length)root.append(element("p",categoryFilter==="考试"?"暂无接下来的考试安排。教务发布日程后，同步即可查看。":`暂无接下来的${categoryFilter}。`,"day-empty"));
+  if(past.length) {const details=element("details",null,"past-events");details.append(element("summary",`已结束的${categoryFilter} · ${past.length}`));group(past,details);root.append(details);}
 }
 function calendarDates(task) {
   if(task.category==="作业") {
@@ -414,12 +499,13 @@ function showArchiveDetail(task) {
   const root=$("archive-detail");root.replaceChildren(element("span",task.category,`badge cat-${CATEGORIES.indexOf(task.category)}`),element("h3",task.title,"archive-title"));
   if(task.location) root.append(element("p",`地点 · ${task.location}`,"task-location"));
   if(task.course) root.append(element("p",task.course,"course"));
+  for(const [key,label] of [["teacher","教师"],["week","教学周"],["period","节次"],["seat","座位"],["organizer","组织者"]]) if(task.details?.[key]) root.append(element("p",`${label} · ${task.details[key]}`,"event-detail"));
   root.append(element("p",`完成时间 · ${formatTime(task.completed_at,true)}`,"task-time"));
   root.append(element("p",task.category==="作业"?`原截止时间 · ${formatTime(task.due_at,true)}`:`起止时间 · ${formatTime(task.starts_at,true)} 至 ${formatTime(task.ends_at,true)}`,"task-time"));
   if(task.todos.length) {const list=element("ul",null,"archive-todos");for(const todo of task.todos) list.append(element("li",`${todo.done?"☑":"☐"} ${todo.text}`));root.append(list);}
   const resources=element("div",null,"resources");resources.append(...task.attachments.map(file=>fileRow(file)));
   for(const link of task.links) {const row=element("div",null,"resource-row");row.append(externalLink(`${link.label || new URL(link.url).hostname} ↗`,link.url));resources.append(row);}
-  root.append(resources);if(task.source_url) root.append(externalLink("查看原作业 ↗",task.source_url));
+  root.append(resources);if(task.source_url) root.append(externalLink(task.source?.startsWith("ruc_")?"教务原页面 ↗":"查看原作业 ↗",task.source_url));
   $("archive-detail-dialog").showModal();
 }
 $("archive-button").onclick=()=>{$("archive-dialog").showModal();loadArchive();};
@@ -445,6 +531,7 @@ function updateSyncControls() {
   $("collector-scan").disabled=syncing || !(cloudState?.enabled || (connected && collectorState.enabled));
   $("collector-scan").textContent=syncing?"正在同步…":"立即同步";
   $("cloud-authorize").disabled=!connected;
+  $("academic-scan").disabled=!connected || !collectorState.enabled;
   $("cloud-revoke").disabled=syncing || !cloudState?.enabled;
 }
 async function checkCollector() {
@@ -481,6 +568,11 @@ $("collector-enabled").onchange=async()=>{
   catch(error){$("source-error").textContent=error.message;$("collector-enabled").checked=!enabled;}
   finally{$("collector-enabled").disabled=false;}
 };
+$("academic-scan").onclick=async()=>{
+  $("academic-scan").disabled=true;
+  try {if((collectorState?.version || "0").localeCompare("1.4.0",undefined,{numeric:true})<0)throw new Error("请重新加载扩展至 v1.4.0，再刷新此页面");await collectorCommand("academic-scan");notice("已打开教务查询页，正在导入课表和考试。");}
+  catch(error){$("source-error").textContent=error.message;}finally{updateSyncControls();}
+};
 $("collector-options").onclick=$("cloud-authorize").onclick=()=>collectorCommand("options").catch(error=>{$("source-error").textContent=error.message;});
 async function checkCloud() {
   try {
@@ -496,17 +588,18 @@ $("cloud-revoke").onclick=async()=>{
 function renderSources() {
   $("sources-list").replaceChildren(...sources.map(source=>{
     const row=element("div",null,"source-row"),header=element("div");
-    const cloud=cloudState?.enabled?cloudState.sources?.[source.id]:null;
+    const academic=source.kind==="academic";
+    const cloud=!academic && cloudState?.enabled?cloudState.sources?.[source.id]:null;
     const local=collectorState?.sourceResults?.[source.id];
     const seen=cloud?.last_success || source.last_seen;
     const fresh=seen && Date.now()-Date.parse(seen)<30*60000;
-    const error=cloudState?.enabled ? cloud?.error : (local?.error && (!seen || Date.parse(local.time)>Date.parse(seen)) ? local.error:source.error);
-    const incomplete=cloud?.last_success ? cloud.status_count<cloud.count : source.imported_count>source.status_count;
+    const error=!academic && cloudState?.enabled ? cloud?.error : (local?.error && (!seen || Date.parse(local.time)>Date.parse(seen)) ? local.error:source.error);
+    const incomplete=!academic && (cloud?.last_success ? cloud.status_count<cloud.count : source.imported_count>source.status_count);
     const label=error?"需处理":incomplete?"状态不完整":fresh?"已同步":seen?"等待更新":"待连接";
     header.append(externalLink(`${source.name} ↗`,source.url),element("span",label,"state"+(fresh && !error && !incomplete?" connected":"")));
     row.append(header);
     const total=cloud?.last_success?cloud.count:source.task_count;
-    row.append(element("p",error || (seen?`${formatTime(seen)} · ${total} 项作业${incomplete?" · 部分完成状态未识别":""}`:cloud?.authorized?"授权已保存，等待同步":"请连接扩展并登录此网站")));
+    row.append(element("p",error || (seen?`${formatTime(seen)} · ${total} 项${academic?"日程":"作业"}${incomplete?" · 部分完成状态未识别":""}`:cloud?.authorized?"授权已保存，等待同步":"请连接扩展并登录此网站")));
     return row;
   }));
 }
@@ -539,12 +632,18 @@ function openTask(task = null) {
   $("dialog-title").textContent = task ? `编辑${taskCategory}` : `添加${taskCategory}`;
   $("task-title").value = task?.title || "";
   $("task-location").value = task?.location || "";
+  $("schedule-fields").hidden=taskCategory==="作业";
+  $("schedule-person-label").textContent=taskCategory==="课程"?"教师（选填）":"组织者 / 主持人（选填）";
+  $("schedule-person").value=task?.details?.[taskCategory==="课程"?"teacher":"organizer"] || "";
+  $("schedule-seat").value=task?.details?.seat || "";
+  $("schedule-seat").hidden=taskCategory!=="考试";
+  document.querySelector('label[for="schedule-seat"]').hidden=taskCategory!=="考试";
   draftTodos = structuredClone(task?.todos || []);
   draftAttachments = structuredClone(task?.attachments || []); renderAttachments(); $("upload-state").textContent="";
   $("task-links").replaceChildren(); for (const link of task?.links || []) addLinkRow(link);
   if (!(task?.links || []).length) $("task-links").append(element("p", "可添加课程资料、会议或文档链接", "resource-empty"));
   $("task-source").hidden=!task?.source_url; $("task-source").replaceChildren();
-  if (task?.source_url) $("task-source").append(externalLink("打开对应作业网页 ↗",task.source_url));
+  if (task?.source_url) $("task-source").append(externalLink(task.source?.startsWith("ruc_")?"打开教务原页面 ↗":"打开对应作业网页 ↗",task.source_url));
   $("task-todos").replaceChildren(checklist(draftTodos, async todos => { draftTodos = todos; }, true));
   $("status").value = task?.status || "todo";
   $("task-completed").hidden=!task?.completed_at; $("task-completed").textContent=task?.completed_at ? `完成时间 · ${formatTime(task.completed_at,true)}（重新打开任务后再次完成会重新计时）` : "";
@@ -578,6 +677,10 @@ $("task-form").onsubmit = async event => {
     const payload = {category: taskCategory, title: $("task-title").value.trim(), location: $("task-location").value.trim(), todos: draftTodos, links, attachments:draftAttachments.map(file=>file.id), status: $("status").value,
       due_at: homework ? inputTime($("due-at").value) : null, starts_at: homework ? null : inputTime($("starts-at").value),
       ends_at: homework ? null : inputTime($("ends-at").value)};
+    payload.details={...(editing?.details || {})};
+    for(const [key,input] of [[taskCategory==="课程"?"teacher":"organizer","schedule-person"],...(taskCategory==="考试"?[["seat","schedule-seat"]]:[])]) {
+      if(taskCategory!=="作业" && $(input).value.trim()!==(payload.details[key] || "")) payload.details[key]=$(input).value.trim();
+    }
     if (editing) payload.revision = editing.revision;
     await api(editing ? `/api/tasks/${editing.id}` : "/api/tasks", editing ? "PATCH" : "POST", payload);
     $("task-dialog").close(); notice("任务已保存"); await refresh();

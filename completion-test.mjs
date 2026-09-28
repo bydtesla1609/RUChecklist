@@ -45,7 +45,7 @@ test("completion transitions, unchanged imports, seven-day archive and protected
     assert.equal((await api("/api/board")).data.tasks.length,0);
     const archive=(await api("/api/archive?category=作业")).data;
     assert.equal(archive.total,1);assert.equal(archive.tasks[0].id,id);assert.ok(archive.tasks[0].due_at);
-    assert.equal((await api("/api/archive?category=科研")).data.total,0);
+    assert.equal((await api("/api/archive?category=课程")).data.total,0);
     assert.equal((await api("/api/archive?offset=-1")).status,400);
     current=await get();assert.equal(current.location,"图书馆");
     // Missing/unknown source status and absent deadline never reopen or erase data.
@@ -106,7 +106,7 @@ test("learning scan preserves signed course entry and repairs an old managed tab
   assert.equal(updated.find(tab=>tab.url.includes("chaoxing.com")).url,entry);
   active=true;updated.length=0;saved.managedTabs={chaoxing:3};
   await vm.runInContext("start()",context);
-  assert.equal(updated.length,3);assert.ok(updated.every(tab=>tab.id!==3));
+  assert.equal(updated.length,5);assert.ok(updated.every(tab=>tab.id!==3));
   saved.enabled=false;updated.length=0;
   await vm.runInContext("start()",context);assert.equal(updated.length,0);
 });

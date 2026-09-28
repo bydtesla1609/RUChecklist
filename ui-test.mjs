@@ -40,7 +40,7 @@ try {
     await root.getByRole("button", {name: "添加待办事项", exact: true}).click();
   }
   await login(page);
-  await page.locator("#add-task").click(); await page.locator("#add-menu button").filter({hasText: "科研"}).click();
+  await page.locator("#add-task").click(); await page.locator("#add-menu button").filter({hasText: "活动"}).click();
   assert.equal(await page.locator("#category").count(), 0);
   assert.equal(await page.locator("#task-title").getAttribute("required"), "");
   await page.locator("#task-title").fill("课程研究 · 读懂一篇论文");
@@ -55,7 +55,7 @@ try {
   await page.waitForFunction(()=>document.getElementById("upload-state").textContent.includes("上传完成"));
   await page.locator("#save-task").click(); await page.locator("#task-dialog").waitFor({state: "hidden"});
   const card = page.locator("article.task").first(); await card.waitFor();
-  assert.equal(await card.locator(".badge").textContent(), "科研");
+  assert.equal(await card.locator(".badge").textContent(), "活动");
   assert.equal(await card.getByRole("link",{name:"课程参考资料 ↗"}).getAttribute("href"),"https://example.com/course-notes");
   const fileURL=await card.getByRole("link",{name:"打开附件：示例图片.png"}).getAttribute("href");
   const preview=await desktop.newPage(); await preview.goto(origin+fileURL);
@@ -77,9 +77,9 @@ try {
   assert.deepEqual(await card.locator(".todo-text").allTextContents(), ["读论文并标注", "整理笔记"]);
   const mobile = await browser.newContext({viewport: {width: 390, height: 844}, isMobile: true, hasTouch: true, deviceScaleFactor: 2});
   const phone = await mobile.newPage(); phone.on("pageerror", error => errors.push(error.message));
-  await login(phone); await category(phone, "科研").click();
-  assert.equal(await phone.locator(".brand-icon svg").count(),2);
-  const alignment=await phone.locator(".brand .brand-icon").evaluate(icon=>{const box=icon.getBoundingClientRect(),svg=icon.querySelector("svg").getBoundingClientRect();return Math.abs(box.top+box.height/2-svg.top-svg.height/2)<1 && Math.abs(box.left+box.width/2-svg.left-svg.width/2)<1;});assert.equal(alignment,true);
+  await login(phone); await category(phone, "活动").click();
+  assert.equal(await phone.locator(".brand-icon img").count(),2);
+  const alignment=await phone.locator(".brand .brand-icon").evaluate(icon=>{const box=icon.getBoundingClientRect(),svg=icon.querySelector("img").getBoundingClientRect();return Math.abs(box.top+box.height/2-svg.top-svg.height/2)<1 && Math.abs(box.left+box.width/2-svg.left-svg.width/2)<1;});assert.equal(alignment,true);
   assert.deepEqual(await (await mobile.request.get(origin+fileURL)).body(),png);
   assert.ok(await phone.getByRole("link",{name:"课程参考资料 ↗"}).isVisible());
   const mobileCard = phone.locator("article.task").first();
@@ -129,9 +129,9 @@ try {
   await page.evaluate(async () => {
     const samples = [
       {category:"作业",title:"数据结构 · 线性表实验",location:"实验室 402",due_at:"2026-10-02T23:59:00+08:00",status:"doing",todos:[{id:"x",text:"完成链表实现",done:true},{id:"y",text:"整理实验报告",done:false}]},
-      {category:"竞赛",title:"数学建模 · 组队讨论",location:"线上会议",starts_at:"2026-10-03T19:00:00+08:00",ends_at:"2026-10-03T20:00:00+08:00",status:"todo",todos:[{id:"x",text:"确定分工与选题方向",done:false}]},
+      {category:"会议",title:"数学建模 · 组队讨论",location:"线上会议",starts_at:"2026-10-03T19:00:00+08:00",ends_at:"2026-10-03T20:00:00+08:00",status:"todo",todos:[{id:"x",text:"确定分工与选题方向",done:false}]},
       {category:"活动",title:"校园夜跑计划",location:"东操场",starts_at:"2026-09-24T19:00:00+08:00",ends_at:"2026-09-24T20:00:00+08:00",status:"done",todos:[{id:"x",text:"完成 3 公里",done:true}]},
-      {category:"组织",title:"分享会 · 做好每个小细节",location:"学生活动中心",starts_at:"2026-09-28T14:00:00+08:00",ends_at:"2026-09-28T16:00:00+08:00",status:"doing",todos:[{id:"x",text:"确认场地与设备",done:true},{id:"y",text:"准备活动物料",done:false}]}
+      {category:"活动",title:"分享会 · 做好每个小细节",location:"学生活动中心",starts_at:"2026-09-28T14:00:00+08:00",ends_at:"2026-09-28T16:00:00+08:00",status:"doing",todos:[{id:"x",text:"确认场地与设备",done:true},{id:"y",text:"准备活动物料",done:false}]}
     ];
     for (const sample of samples) { const r=await fetch("/api/tasks",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(sample)}); if(!r.ok) throw new Error("Fixture creation failed"); }
   });
@@ -156,7 +156,7 @@ try {
   await mkdir("data/screenshots",{recursive:true});await page.screenshot({path:"data/screenshots/archive-detail.png"});
   await page.getByRole("button",{name:"关闭详情",exact:true}).click();
   await page.screenshot({path:"data/screenshots/archive.png"});
-  await page.locator("#archive-categories button").filter({hasText:"科研"}).click();
+  await page.locator("#archive-categories button").filter({hasText:"活动"}).click();
   await page.locator("#archive-list .archive-empty").waitFor();
   await page.locator("#archive-categories button").filter({hasText:"作业"}).click();
   await page.getByRole("button",{name:"删除归档：归档检查 · 已提交报告",exact:true}).click();
@@ -168,7 +168,7 @@ try {
     await fetch("/api/tasks",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({category:"作业",title:"待补充日期的导入任务",due_at:"2026-10-01T00:00:00Z"})});
   });
   database.prepare("UPDATE tasks SET due_at=NULL WHERE title=?").run("待补充日期的导入任务");
-  await page.evaluate(() => refresh());await category(page,"日历看板").click();
+  await page.evaluate(() => refresh());await category(page,"总览").click();
   await page.evaluate(()=>{calendarMonth="2026-10";selectedDay="2026-10-02";renderCalendar();});
   assert.equal(await page.title(),"RUChecklist");
   assert.equal(await page.locator(".topbar,.focus-note,#sync-state").count(),0);
@@ -205,7 +205,7 @@ try {
   await saved(page,()=>completedCard.locator(".task-status").selectOption("todo"));
   await page.waitForFunction(()=>!document.querySelector("article[data-busy]"));
   assert.equal(database.prepare("SELECT completed_at FROM tasks WHERE id=?").get(homeworkId).completed_at,null);
-  await category(page,"日历看板").click();
+  await category(page,"总览").click();
   await page.evaluate(()=>{calendarMonth="2026-10";selectedDay="2026-10-02";renderCalendar();});
   assert.equal(await homework.count(),1);
   // A failed direct status update preserves the task and shows its actual state.
@@ -216,7 +216,7 @@ try {
   assert.match(await page.locator("#toast").textContent(),/其他设备/);
   await mkdir("data/screenshots", {recursive: true});
   await page.screenshot({path:"data/screenshots/desktop.png",fullPage:true});
-  await phone.evaluate(() => refresh()); await category(phone, "日历看板").click();
+  await phone.evaluate(() => refresh()); await category(phone, "总览").click();
   await phone.evaluate(()=>{calendarMonth="2026-10";selectedDay="2026-10-02";renderCalendar();scrollTo(0,0);});
   await phone.screenshot({path:"data/screenshots/mobile.png",fullPage:true});
   await phone.screenshot({path:"data/screenshots/mobile-top.png"});
@@ -252,6 +252,32 @@ try {
   await category(page, "活动").click(); await page.locator("#add-task").click();
   assert.equal(await page.locator("#dialog-title").textContent(), "添加活动");
   await page.screenshot({path:"data/screenshots/form.png"});
+  await page.locator("#task-dialog .close-dialog").first().click();
+  const scheduleDate=await page.evaluate(()=>localInput(new Date()).slice(0,10));
+  await page.evaluate(async day=>{
+    await api("/api/tasks","POST",{category:"课程",title:"教学周课表验证",location:"明德楼 101",starts_at:`${day}T08:00:00+08:00`,ends_at:`${day}T09:30:00+08:00`,details:{teacher:"示例教师",week:"4",period:"1–2节"}});
+    await api("/api/tasks","POST",{category:"考试",title:"期中考试验证",location:"示例考场",starts_at:`${shiftDay(day,2)}T09:00:00+08:00`,ends_at:`${shiftDay(day,2)}T11:00:00+08:00`,details:{seat:"28"}});
+    await refresh();
+  },scheduleDate);
+  await category(page,"课程").click();
+  assert.equal(await page.locator(".week-day").count(),7);
+  assert.equal(await page.locator(".class-session .task-title").textContent(),"教学周课表验证");
+  assert.match(await page.locator(".class-session").textContent(),/08:00 — 09:30/);
+  assert.equal(await page.locator("#count-overdue").textContent(),"1.5 h");
+  await page.getByRole("button",{name:"下一周",exact:true}).click();assert.equal(await page.locator(".class-session").count(),0);
+  await page.getByRole("button",{name:"本周",exact:true}).click();assert.equal(await page.locator(".class-session").count(),1);
+  await page.locator(".class-session .edit-task").click();assert.equal(await page.locator("#schedule-person").inputValue(),"示例教师");
+  await page.locator("#task-title").fill("教学周课表验证 · 改名");await page.locator("#save-task").click();await page.locator("#task-dialog").waitFor({state:"hidden"});
+  assert.equal(JSON.parse(database.prepare("SELECT overrides FROM tasks WHERE title=?").get("教学周课表验证 · 改名").overrides).includes("details"),false);
+  await page.screenshot({path:"data/screenshots/courses.png",fullPage:true});
+  await category(page,"考试").click();assert.match(await page.locator(".exam-group").textContent(),/2 天后/);assert.match(await page.locator(".exam-group").textContent(),/座位 · 28/);
+  await page.screenshot({path:"data/screenshots/exams.png",fullPage:true});
+  await phone.evaluate(()=>refresh());
+  for(const section of ["课程","考试","会议","活动"]) {
+    await category(phone,section).click();
+    for(const width of [320,375,430,768]) {await phone.setViewportSize({width,height:844});assert.equal(await phone.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`${section} overflow at ${width}px`);}
+  }
+  await phone.setViewportSize({width:390,height:844});await category(phone,"课程").click();await phone.screenshot({path:"data/screenshots/courses-mobile.png",fullPage:true});
   assert.deepEqual(errors, []);
   console.log("PASS: Beijing monthly calendar, date selection, month/keyboard navigation, ranges, undated tasks, direct status and conflict handling, downloadable extension, unified cloud/local sync, completion order, archive filter/detail/delete, simulated board-to-extension controls, category inheritance, required title, location, detail/card todo CRUD, mouse/touch/keyboard sorting, two browser sessions, conflict draft retention, 320–768px layouts, SVG alignment, attachment upload/preview/download and shared links. Screenshots: data/screenshots/ (synthetic data only).");
 } finally {

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "RUChecklist · 作业导入",
-  "version": "1.3.5",
-  "description": "从已登录的教学网站读取作业标题和截止时间，导入你自己的看板。",
+  "name": "RUChecklist · 校园同步",
+  "version": "1.4.0",
+  "description": "将已登录的教学网站作业、人大课表及考试日程同步至个人看板。",
   "permissions": [
     "storage",
     "alarms"
@@ -15,7 +15,8 @@
     "https://mooc1-api.chaoxing.com/*",
     "https://mooc1-1.chaoxing.com/*",
     "https://mooc1-2.chaoxing.com/*",
-    "https://campus-task-board.pages.dev/*"
+    "https://campus-task-board.pages.dev/*",
+    "https://jw.ruc.edu.cn/*"
   ],
   "optional_host_permissions": [
     "https://*/*",
@@ -27,7 +28,7 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "打开作业导入设置"
+    "default_title": "打开校园同步设置"
   },
   "options_page": "options.html",
   "content_scripts": [
@@ -67,6 +68,26 @@
       ],
       "js": [
         "board-bridge.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://jw.ruc.edu.cn/Njw2017/*"
+      ],
+      "js": [
+        "academic-parser.js",
+        "academic-capture.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://jw.ruc.edu.cn/Njw2017/*"
+      ],
+      "js": [
+        "academic-content.js"
       ],
       "run_at": "document_start"
     }

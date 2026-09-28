@@ -47,6 +47,11 @@ export async function createEnvironment(dataDir, password) {
     try { database.exec(await readFile(join(root,"migrations/0004_completion.sql"),"utf8")); database.exec("COMMIT"); }
     catch(error) { database.exec("ROLLBACK"); database.close(); throw error; }
   }
+  if(!database.prepare("PRAGMA table_info(tasks)").all().some(column=>column.name==="details")) {
+    database.exec("BEGIN");
+    try {database.exec(await readFile(join(root,"migrations/0005_academic_categories.sql"),"utf8"));database.exec("COMMIT");}
+    catch(error){database.exec("ROLLBACK");database.close();throw error;}
+  }
   const keyFile=join(dataDir,"access-code.txt");
   let key=password;
   if(!key){try{key=(await readFile(keyFile,"utf8")).trim();}catch{key=randomBytes(18).toString("base64url");await writeFile(keyFile,key,{mode:0o600});}}

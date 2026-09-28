@@ -3,6 +3,8 @@ export const SOURCES = {
   smartestu: {name: "SmartEstu", url: "https://smartestu.cn/assignment"},
   ketangpai: {name: "课堂派", url: "https://www.ketangpai.com/"},
   chaoxing: {name: "学习通", url: "https://mooc2-ans.chaoxing.com/"},
+  ruc_courses: {name:"人大课表",url:"https://jw.ruc.edu.cn/Njw2017/index.html#/student/student-course-list/",kind:"academic"},
+  ruc_exams: {name:"人大考试",url:"https://jw.ruc.edu.cn/Njw2017/index.html#/student/test-arrange-search/",kind:"academic"},
 };
 function configuredSources(env) {
   const urls=JSON.parse(env.SOURCE_URLS || "{}");
@@ -11,10 +13,10 @@ function configuredSources(env) {
     return [id,{...source,url:url.protocol==="https:" && url.hostname===new URL(source.url).hostname && !url.username && !url.password ? url.href : source.url}];
   }));
 }
-const CATEGORIES = ["作业", "科研", "竞赛", "活动", "组织"];
+const CATEGORIES = ["作业", "课程", "考试", "活动", "会议"];
 const STATUSES = ["todo", "doing", "done"];
-const FIELDS = ["category", "title", "content", "location", "todos", "links", "attachments", "due_at", "starts_at", "ends_at", "status"];
-const stored = (task, field) => ["todos","links","attachments"].includes(field) ? JSON.stringify(task[field]) : task[field];
+const FIELDS = ["category", "title", "content", "location", "todos", "links", "attachments", "due_at", "starts_at", "ends_at", "status", "details"];
+const stored = (task, field) => ["todos","links","attachments","details"].includes(field) ? JSON.stringify(task[field]) : task[field];
 const FILE_LIMIT=10*1024*1024, STORAGE_LIMIT=100*1024*1024, CHUNK_SIZE=512*1024;
 const now = () => new Date().toISOString();
 const archiveCutoff = () => new Date(Date.now()-7*86400000).toISOString();
@@ -27,7 +29,7 @@ const json = (value, status=200, headers={}) => Response.json(value, {status, he
 function expose(row, files) {
   const {overrides, deleted, external_id, ...visible} = row;
   const attachments=JSON.parse(row.attachments);
-  return {...visible,title:row.title || row.content,todos:JSON.parse(row.todos),links:JSON.parse(row.links),attachments:files ? attachments.map(id=>files.get(id)).filter(Boolean) : attachments};
+  return {...visible,title:row.title || row.content,details:JSON.parse(row.details || "{}"),todos:JSON.parse(row.todos),links:JSON.parse(row.links),attachments:files ? attachments.map(id=>files.get(id)).filter(Boolean) : attachments};
 }
 async function withFiles(row, db) {
   const files=await fileReferences(JSON.parse(row.attachments),db);
@@ -64,7 +66,7 @@ function webURL(value, label="链接") {
 function sourceURL(source,value,fallback) {
   if(!value) return fallback;
   const url=new URL(webURL(value,"作业网页"));
-  const domains={smartestu:["smartestu.cn"],ketangpai:["ketangpai.com"],chaoxing:["chaoxing.com"]}[source];
+  const domains={smartestu:["smartestu.cn"],ketangpai:["ketangpai.com"],chaoxing:["chaoxing.com"],ruc_courses:["jw.ruc.edu.cn"],ruc_exams:["jw.ruc.edu.cn"]}[source];
   if(url.protocol!=="https:" || !domains.some(host=>url.hostname===host || url.hostname.endsWith(`.${host}`))) fail(400,"作业网页与平台不匹配");
   return url.href;
 }
@@ -74,7 +76,7 @@ function dateValue(value, label, required=false) {
   return new Date(value).toISOString();
 }
 export function validate(value, imported=false) {
-  const category=value.category || "作业", status=value.status || "todo", title=value.title ?? value.content, location=value.location ?? "", todos=value.todos ?? [];
+  const category=["科研","竞赛","组织"].includes(value.category)?"活动":value.category || "作业", status=value.status || "todo", title=value.title ?? value.content, location=value.location ?? "", todos=value.todos ?? [];
   if(!CATEGORIES.includes(category) || !STATUSES.includes(status)) fail(400,"任务分类或进度不正确");
   if(typeof title!=="string" || !title.trim() || title.length>4000) fail(400,"请填写标题（最多 4000 个字符）");
   if(typeof location!=="string" || location.length>300) fail(400,"地点最多 300 个字符");
@@ -96,7 +98,13 @@ export function validate(value, imported=false) {
   const starts_at=!homework ? dateValue(value.starts_at,"开始时间",true) : null;
   const ends_at=!homework ? dateValue(value.ends_at,"结束时间",true) : null;
   if(starts_at && starts_at>ends_at) fail(400,"结束时间不能早于开始时间");
-  return {category,title:title.trim(),content:title.trim(),location:location.trim(),todos:checklist,links,attachments,due_at,starts_at,ends_at,status};
+  if(value.details!=null && (typeof value.details!=="object" || Array.isArray(value.details))) fail(400,"日程信息格式不正确");
+  const details={};
+  for(const name of ["teacher","semester","week","period","seat","organizer"]) {
+    const text=value.details?.[name];if(text===undefined)continue;
+    if(typeof text!=="string" || text.length>300) fail(400,"日程信息最多 300 字");details[name]=text.trim();
+  }
+  return {category,title:title.trim(),content:title.trim(),location:location.trim(),todos:checklist,links,attachments,due_at,starts_at,ends_at,status,details};
 }
 async function collectorAuth(request,db) {
   const token=request.headers.get("Authorization")?.match(/^Bearer ([A-Za-z0-9_-]{20,100})$/)?.[1];
@@ -113,6 +121,7 @@ async function applyImport(payload,db,sources) {
   if(error!==undefined && (typeof error!=="string" || error.length>300 || tasks.length)) fail(400,"错误状态格式不正确");
   const count=payload.task_count ?? tasks.length;
   if(!Number.isInteger(count) || count<0 || count>10000) fail(400,"作业数量不正确");
+  if(source==="ruc_courses" || source==="ruc_exams") return applyAcademicImport(payload,db,sources);
   const stamp=now();
   const remoteChanged="excluded.source_status IS NOT NULL AND tasks.source_status IS NOT excluded.source_status";
   const nextStatus=`CASE WHEN ${remoteChanged} THEN excluded.source_status ELSE tasks.status END`;
@@ -140,6 +149,26 @@ async function applyImport(payload,db,sources) {
   statements.push(db.prepare("UPDATE sources SET last_seen=?,task_count=?,error=? WHERE id=?").bind(stamp,count,error || null,source));
   const result=await db.batch(statements);
   return {changed:result.slice(0,-1).reduce((sum,r)=>sum+r.meta.changes,0)};
+}
+async function applyAcademicImport({source,tasks,error,task_count=tasks.length},db,sources) {
+  const stamp=now(),category=source==="ruc_courses"?"课程":"考试";
+  const fields=["title","content","location","starts_at","ends_at","details"];
+  const rows=tasks.map(item=>{
+    if(!item || typeof item.external_id!=="string" || !item.external_id || item.external_id.length>250) fail(400,"缺少稳定的日程编号");
+    const task=validate({...item,category,status:"todo"},true);
+    return [crypto.randomUUID(),category,task.title,task.content,task.location,task.starts_at,task.ends_at,JSON.stringify(task.details),source,item.external_id,sourceURL(source,item.source_url,sources[source].url),stamp,stamp];
+  });
+  const unmodified=field=>["title","content"].includes(field)?`instr(tasks.overrides,'"title"')=0 AND instr(tasks.overrides,'"content"')=0`:`instr(tasks.overrides,'"${field}"')=0`;
+  const assignments=fields.map(field=>`${field}=CASE WHEN ${unmodified(field)} THEN excluded.${field} ELSE tasks.${field} END`);
+  const changes=fields.map(field=>`(${unmodified(field)} AND tasks.${field} IS NOT excluded.${field})`);
+  const results=await db.batch([
+    db.prepare(`INSERT INTO tasks(id,category,title,content,location,starts_at,ends_at,details,source,external_id,source_url,created_at,updated_at)
+      SELECT ${Array.from({length:13},(_,i)=>`json_extract(value,'$[${i}]')`).join(",")} FROM json_each(?) WHERE 1
+      ON CONFLICT(source,external_id) DO UPDATE SET ${assignments.join(",")},source_url=excluded.source_url,updated_at=excluded.updated_at,revision=tasks.revision+1
+      WHERE tasks.deleted=0 AND (${changes.join(" OR ")} OR tasks.source_url IS NOT excluded.source_url)`).bind(JSON.stringify(rows)),
+    db.prepare("UPDATE sources SET last_seen=?,task_count=?,error=? WHERE id=?").bind(stamp,task_count,error || null,source)
+  ]);
+  return {changed:results[0].meta.changes};
 }
 async function uploadFile(request,db) {
   const contentType=request.headers.get("Content-Type") || "";
