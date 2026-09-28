@@ -60,6 +60,8 @@ test("two devices, validation, conflict protection, import idempotency and persi
     assert.equal((await pc.request("/api/import","POST",batch,{Authorization:"Bearer wrong"})).status,401);
     assert.equal((await pc.request("/api/import","POST",batch,auth)).data.changed,1);
     assert.equal((await pc.request("/api/import","POST",batch,auth)).data.changed,0);
+    const sourceHealth=(await pc.request("/api/board")).data.sources.find(source=>source.id==="smartestu");
+    assert.equal(sourceHealth.imported_count,1);assert.equal(sourceHealth.status_count,0);
     let imported=(await phone.request("/api/board")).data.tasks.find(t=>t.source);
     assert.equal((await phone.request(`/api/tasks/${imported.id}`,"PATCH",{title:"自己备注",location:"自习室",todos,status:"done",revision:imported.revision})).status,200);
     batch.tasks[0].content="教师改了标题";batch.tasks[0].due_at="2026-10-04T20:00:00+08:00";

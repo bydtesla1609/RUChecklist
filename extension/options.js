@@ -1,4 +1,5 @@
 const $=id=>document.getElementById(id);
+$("version").textContent=`· v${chrome.runtime.getManifest().version}`;
 // Also handles an already-loaded manifest that still opens the old popup.
 if(chrome.extension.getViews({type:"popup"}).includes(window)) {
   chrome.runtime.openOptionsPage().then(()=>window.close());
@@ -55,4 +56,16 @@ $("scan").onclick=async()=>{
   const {enabled}=await chrome.storage.local.get("enabled");
   if(!enabled){$("result").textContent="请先勾选自动检查并保存设置。";return;}
   const result=await chrome.runtime.sendMessage({type:"scan"});$("result").textContent=result.error || "已打开专用作业页，请确认已登录并打开作业栏目。";
+};
+chrome.storage.local.get("cloudLastResult").then(data=>{if(data.cloudLastResult)$("cloud-result").textContent=data.cloudLastResult;});
+$("cloud-authorize").onclick=async()=>{
+  if(!$("cloud-consent").checked){$("cloud-result").textContent="请先阅读并勾选云端登录授权说明。";return;}
+  try {
+    const allowed=await chrome.permissions.request({permissions:["cookies"],origins:["https://openapiv5.ketangpai.com/*"]});
+    if(!allowed)throw new Error("未获得登录授权读取权限，云端采集未启用。");
+    $("cloud-authorize").disabled=true;
+    const result=await chrome.runtime.sendMessage({type:"cloud-authorize"});
+    if(result?.error)throw new Error(result.error);
+    $("cloud-result").textContent="已启用。正在打开三个作业列表保存授权；加载完成后，到看板点击“云端立即同步”检查结果。";
+  }catch(error){$("cloud-result").textContent=error.message;}finally{$("cloud-authorize").disabled=false;}
 };

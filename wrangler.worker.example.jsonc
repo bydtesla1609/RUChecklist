@@ -1,0 +1,10 @@
+{
+  "name": "campus-task-board",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-05-15",
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {"directory": "./static", "binding": "ASSETS", "run_worker_first": true},
+  "d1_databases": [{"binding": "DB", "database_name": "campus-task-board", "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID"}],
+  "triggers": {"crons": ["*/15 * * * *"]}
+}

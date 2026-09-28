@@ -20,11 +20,12 @@ try {
   browser=await chromium.launch({headless:true});
   const context=await browser.newContext();
   await context.addInitScript(()=>{
+    globalThis.runtimeMessages=[];
     const stored=()=>JSON.parse(localStorage.getItem("test-saved-settings") || "{}");
     globalThis.chrome={storage:{local:{get:async keys=>{
       const data=stored();return typeof keys==="string"?{[keys]:data[keys]}:data;
     },set:async value=>localStorage.setItem("test-saved-settings",JSON.stringify({...stored(),...value}))}},
-    runtime:{sendMessage:async()=>({ok:true})},extension:{getViews:()=>[]},permissions:{request:async()=>globalThis.allowPermission===true}};
+    runtime:{sendMessage:async message=>{runtimeMessages.push(message.type);return {ok:true};},getManifest:()=>({version:"test"})},extension:{getViews:()=>[]},permissions:{request:async()=>globalThis.allowPermission===true}};
   });
   async function openSettings() {
     const page=await context.newPage();await page.goto(optionsURL);
@@ -68,6 +69,28 @@ try {
   });
   assert.equal(learning[0].status,"done");assert.equal(learning[0].external_id,"9:1");assert.equal(learning[0].due_at,"2026-10-01T14:00:00.000Z");
   assert.equal(learning[1].status,"todo");assert.equal(learning[1].due_at,null);
+  await page.locator("#cloud-authorize").click();assert.match(await page.locator("#cloud-result").textContent(),/请先阅读/);
+  assert.equal(await page.evaluate(()=>runtimeMessages.includes("cloud-authorize")),false);
+  await page.locator("#cloud-consent").check();await page.locator("#cloud-authorize").click();
+  assert.match(await page.locator("#cloud-result").textContent(),/未获得/);assert.equal(await page.evaluate(()=>runtimeMessages.includes("cloud-authorize")),false);
+  await page.evaluate(()=>globalThis.allowPermission=true);await page.locator("#cloud-authorize").click();
+  await page.waitForFunction(()=>document.getElementById("cloud-result").textContent.includes("已启用"));assert.equal(await page.evaluate(()=>runtimeMessages.includes("cloud-authorize")),true);
+  const captureContext=await browser.newContext();
+  await captureContext.route("**/*",route=>route.fulfill(route.request().url().includes("/api/")?{contentType:"application/json",body:JSON.stringify({studentCourseHomeworkDTOList:[{id:1,name:"捕获验证",submission_status:"completed"}]})}:{contentType:"text/html",body:"<!doctype html><body>测试</body>"}));
+  const capture=await captureContext.newPage();await capture.goto("https://smartestu.cn/assignment");
+  await capture.evaluate(()=>{window.messages=[];addEventListener("message",event=>messages.push(event.data));});
+  for(const name of ["cloud-routes.js","parsers.js","capture.js"])await capture.addScriptTag({content:await readFile(new URL(name,extension),"utf8")});
+  await capture.evaluate(()=>fetch("/api/homework/student/mark/queryHomeworks",{headers:{Authorization:"Bearer synthetic"}}).then(r=>r.json()));
+  await capture.waitForFunction(()=>messages.some(m=>m.kind==="campus-assignments-v1"));
+  assert.equal(await capture.evaluate(()=>messages.some(m=>m.kind==="campus-cloud-recipe-v1")),false);
+  await capture.evaluate(()=>window.postMessage({kind:"campus-cloud-mode",enabled:true},location.origin));
+  await capture.evaluate(()=>fetch("/api/homework/student/mark/queryHomeworks",{headers:{Authorization:"Bearer synthetic"}}).then(r=>r.json()));
+  await capture.waitForFunction(()=>messages.some(m=>m.kind==="campus-cloud-recipe-v1"));
+  assert.equal(await capture.evaluate(()=>messages.find(m=>m.kind==="campus-cloud-recipe-v1").recipe.headers.authorization),"Bearer synthetic");
+  await capture.evaluate(()=>new Promise(resolve=>{const xhr=new XMLHttpRequest();xhr.open("POST","/api/homework/student/mark/queryHomeworks");xhr.setRequestHeader("Content-Type","application/json");xhr.setRequestHeader("Authorization","Bearer xhr-synthetic");xhr.onload=resolve;xhr.send('{"courseid":"test"}');}));
+  await capture.waitForFunction(()=>messages.filter(m=>m.kind==="campus-cloud-recipe-v1").length===2);
+  assert.equal(await capture.evaluate(()=>messages.filter(m=>m.kind==="campus-cloud-recipe-v1")[1].recipe.headers.authorization),"Bearer xhr-synthetic");
+  await captureContext.close();
   await mkdir("data/screenshots",{recursive:true});await page.screenshot({path:"data/screenshots/extension.png",fullPage:true});
   console.log("PASS: Chaoxing DOM metadata and submission statuses; settings UI preserves draft through tab switching, close/reopen and reload; permission denial retains draft; successful save clears draft and restores active settings. Chrome APIs simulated; user's Edge untouched.");
 } finally {

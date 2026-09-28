@@ -62,31 +62,35 @@ globalThis.CampusParsers = (() => {
     if(!recognized) return null;
     return [...output.values()];
   }
-  function chaoxing(document,pageURL) {
-    if(!/\/work\/(?:list|all-task)(?:\?|$)/.test(pageURL)) return null;
+  function chaoxingRows(rows,pageURL) {
     const result=new Map();
-    for(const row of document.querySelectorAll("li[data]")) {
-      const title=row.querySelector(".overHidden2"),label=row.querySelector(".status");
-      if(!title || !label) continue;
-      const url=new URL(row.getAttribute("data"),pageURL);
+    for(const row of rows) {
+      const url=new URL(row.url,pageURL);
       if(url.protocol!=="https:" || !/(^|\.)chaoxing\.com$/.test(url.hostname) || !/\/work\/(task|eval-list)$/.test(url.pathname)) continue;
       const id=url.searchParams.get("workId"),course=url.searchParams.get("courseId") || new URL(pageURL).searchParams.get("courseId");
-      if(!id || !course || !title.textContent.trim()) continue;
-      const statusText=label.textContent.trim();
+      if(!id || !course || !row.title.trim()) continue;
+      const statusText=row.status.trim();
       let status;
       if(/未交|未提交|打回|退回|重做/.test(statusText)) status="todo";
       else if(/待互[评評]/.test(statusText)) status="doing";
       else if(/已完成|已提交|已交|待批[阅閱改]|已批[阅閱改]|已互[评評]/.test(statusText)) status="done";
-      const time=row.querySelector(".time");
-      const text=[time?.getAttribute("title"),time?.getAttribute("data-time"),time?.textContent].filter(Boolean).join(" ");
-      const absolute=text.match(/\d{4}[-/]\d{2}[-/]\d{2}\s+\d{2}:\d{2}(?::\d{2})?/);
-      const task={external_id:`${course}:${id}`,content:title.textContent.trim(),due_at:absolute?date(absolute[0]):null,course:"",source_url:url.href};
+      const absolute=row.time.match(/\d{4}[-/]\d{2}[-/]\d{2}\s+\d{2}:\d{2}(?::\d{2})?/);
+      const task={external_id:`${course}:${id}`,content:row.title.trim(),due_at:absolute?date(absolute[0]):null,course:"",source_url:url.href};
       if(status) task.status=status;
       result.set(task.external_id,task);
     }
-    if(result.size) return [...result.values()];
+    return [...result.values()];
+  }
+  function chaoxing(document,pageURL) {
+    if(!/\/work\/(?:list|all-task)(?:\?|$)/.test(pageURL)) return null;
+    const rows=[...document.querySelectorAll("li[data]")].filter(row=>row.querySelector(".overHidden2") && row.querySelector(".status")).map(row=>{
+      const time=row.querySelector(".time");
+      return {url:row.getAttribute("data"),title:row.querySelector(".overHidden2").textContent,status:row.querySelector(".status").textContent,time:[time?.getAttribute("title"),time?.getAttribute("data-time"),time?.textContent].filter(Boolean).join(" ")};
+    });
+    const tasks=chaoxingRows(rows,pageURL);
+    if(tasks.length) return tasks;
     if(document.querySelector(".ulDiv, .work-list") && /暂无作业|没有作业|暂无相关/.test(document.body?.textContent || "")) return [];
     return null;
   }
-  return {parse,date,chaoxing};
+  return {parse,date,chaoxing,chaoxingRows};
 })();

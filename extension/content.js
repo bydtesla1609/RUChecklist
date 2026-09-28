@@ -1,9 +1,12 @@
 (() => {
   const source=location.hostname==="smartestu.cn"?"smartestu":location.hostname==="www.ketangpai.com"?"ketangpai":/(^|\.)chaoxing\.com$/.test(location.hostname)?"chaoxing":null;
   if(!source) return;
-  let seen=false,running=false,navigated=false,lastDocument="",managed=false;
+  let seen=false,running=false,navigated=false,lastDocument="",managed=false,cloudEnabled=false;
   const send=(tasks,error)=>chrome.runtime.sendMessage({type:"capture",source,tasks,...(error?{error}:{})}).catch(()=>{});
   window.addEventListener("message",event=>{
+    if(event.source===window && event.origin===location.origin && event.data?.kind==="campus-cloud-recipe-v1" && event.data.source===source && cloudEnabled) {
+      chrome.runtime.sendMessage({type:"cloud-recipe",source,recipe:event.data.recipe}).catch(()=>{});return;
+    }
     if(event.source!==window || event.origin!==location.origin || event.data?.kind!=="campus-assignments-v1" || event.data.source!==source) return;
     if(!Array.isArray(event.data.tasks) || event.data.tasks.length>1000) return;
     seen=true;send(event.data.tasks,event.data.error);
@@ -20,6 +23,7 @@
     try {
       const first=CampusParsers.chaoxing(document,location.href);
       if(first===null) return;
+      if(cloudEnabled) chrome.runtime.sendMessage({type:"cloud-recipe",source,recipe:{url:location.href,method:"GET",headers:{}}}).catch(()=>{});
       const signature=JSON.stringify(first);
       if(signature===lastDocument) return;
       const collected=new Map(first.map(task=>[task.external_id,task]));
@@ -48,7 +52,7 @@
     new MutationObserver(()=>{clearTimeout(timer);timer=setTimeout(readLearning,600);}).observe(document.body,{childList:true,subtree:true,characterData:true});
   }
   if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",observe,{once:true});else observe();
-  chrome.runtime.sendMessage({type:"collection-context"}).then(result=>{managed=!!result?.managed;readLearning();}).catch(()=>{});
+  chrome.runtime.sendMessage({type:"collection-context"}).then(result=>{managed=!!result?.managed;cloudEnabled=!!result?.cloudEnabled;window.postMessage({kind:"campus-cloud-mode",enabled:cloudEnabled},location.origin);readLearning();}).catch(()=>{});
   chrome.runtime.onMessage.addListener(message=>{if(message.type==="read-current") {lastDocument="";readLearning();}});
   setTimeout(()=>{
     if(seen || !managed || (window.top!==window && source!=="chaoxing")) return;

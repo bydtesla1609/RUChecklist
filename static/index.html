@@ -57,6 +57,7 @@
   <div class="dialog-heading"><div><p class="eyebrow">CONNECTED SOURCES</p><h2>作业来源与同步</h2></div><button class="icon-button close-dialog" aria-label="关闭">×</button></div>
   <p class="muted">看板数据保存在服务器。设备打开同一地址后，每 6 秒刷新一次。</p>
   <div id="sources-list"></div>
+  <div class="connection-note"><strong>云端采集 · 电脑关机也能运行</strong><p>每 15 分钟检查已授权的作业列表，仅更新有变化的任务。首次需在 Edge 扩展中明确授权；登录过期时需重新授权。</p><div id="cloud-status" role="status">正在检查云端配置…</div><div class="collector-actions"><button id="cloud-authorize" class="secondary">打开云端授权设置</button><button id="cloud-run" class="secondary" disabled>云端立即同步</button><button id="cloud-revoke" class="text-button" disabled>关闭并删除云端授权</button></div></div>
   <p id="storage-state" class="hint"></p>
   <div class="connection-note"><strong>Edge 作业导入</strong><p id="collector-state" role="status">正在检查此浏览器的扩展…</p>
     <div id="collector-controls" hidden><div class="collector-actions"><button id="collector-connect" class="primary">连接此看板</button><button id="collector-scan" class="secondary">立即同步</button><button id="collector-options" class="text-button">扩展设置</button></div><label class="collector-toggle"><input id="collector-enabled" type="checkbox">每 15 分钟自动检查</label></div>

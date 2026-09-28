@@ -1,10 +1,36 @@
 const SOURCES={smartestu:"https://smartestu.cn/assignment",ketangpai:"https://www.ketangpai.com/",chaoxing:"https://mooc2-ans.chaoxing.com/"};
 const BOARD_ORIGIN="https://campus-task-board.pages.dev";
+if(typeof importScripts==="function") importScripts("cloud-routes.js");
 function sourceFor(url) {
   const host=new URL(url).hostname;
   return host==="smartestu.cn"?"smartestu":host==="www.ketangpai.com"?"ketangpai":/(^|\.)chaoxing\.com$/.test(host)?"chaoxing":null;
 }
-let queue=Promise.resolve(),scanning=null;
+let queue=Promise.resolve(),cloudQueue=Promise.resolve(),scanning=null;
+async function cloudAPI(path,value) {
+  const {boardURL,token}=await chrome.storage.local.get(["boardURL","token"]);
+  if(boardURL!==BOARD_ORIGIN || !token) throw new Error("请先连接正式看板，再授权云端采集");
+  const response=await fetch(`${BOARD_ORIGIN}${path}`,{method:"POST",credentials:"omit",headers:{"Content-Type":"application/json",Authorization:`Bearer ${token}`},body:JSON.stringify(value),signal:AbortSignal.timeout(20000)});
+  const data=await response.json();if(!response.ok)throw new Error(data.error || "云端授权失败");return data;
+}
+async function cloudRecipe(message,sender) {
+  const {cloudEnabled,cloudRecipeCache={}}=await chrome.storage.local.get(["cloudEnabled","cloudRecipeCache"]);
+  if(!cloudEnabled) return {skipped:true};
+  if(!sender.tab || sourceFor(sender.url)!==message.source || CampusCloudRoutes.source(message.recipe?.url)!==message.source) throw new Error("云端授权来源不匹配");
+  const {boardURL,token}=await chrome.storage.local.get(["boardURL","token"]);
+  if(boardURL!==BOARD_ORIGIN || !token)throw new Error("请先连接正式看板");
+  const response=await fetch(`${BOARD_ORIGIN}/api/collector-config`,{credentials:"omit",headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(15000)});
+  if(!response.ok)throw new Error("无法确认云端授权，请重新连接看板");
+  if(!(await response.json()).cloud_enabled){await chrome.storage.local.set({cloudEnabled:false,cloudRecipeCache:{}});return {skipped:true};}
+  if(!await chrome.permissions.contains({permissions:["cookies"]})) throw new Error("请在扩展设置中授权云端采集");
+  const cookies=await chrome.cookies.getAll({url:message.recipe.url});
+  const recipe={...message.recipe,page_url:sender.url,headers:{...message.recipe.headers,cookie:cookies.map(cookie=>`${cookie.name}=${cookie.value}`).join("; ")}};
+  const fingerprint=[...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(JSON.stringify(recipe))))].map(x=>x.toString(16).padStart(2,"0")).join("");
+  if(cloudRecipeCache[fingerprint]) return {skipped:true};
+  await cloudAPI("/api/cloud-credentials",{source:message.source,recipe});
+  cloudRecipeCache[fingerprint]=Date.now();
+  await chrome.storage.local.set({cloudRecipeCache:Object.fromEntries(Object.entries(cloudRecipeCache).slice(-50)),cloudLastResult:"已保存云端授权，请到看板点击云端立即同步。"});
+  return {ok:true};
+}
 chrome.action.onClicked.addListener(()=>chrome.runtime.openOptionsPage());
 async function reportError(error,source) {
   const message=String(error.message || error).slice(0,300),time=new Date().toISOString();
@@ -36,10 +62,10 @@ async function upload(message,sender) {
   await chrome.action.setBadgeText({text:Object.values(sourceResults).some(value=>value.error)?"!":""});
   return {ok:true,changed};
 }
-async function performScan() {
+async function performScan(force=false) {
   const {enabled,boardURL,token,managedTabs={},sourceURLs={}}=await chrome.storage.local.get(["enabled","boardURL","token","managedTabs","sourceURLs"]);
   if(!boardURL || !token) throw new Error("请先连接看板");
-  if(!enabled) throw new Error("自动同步已暂停，请先开启同步");
+  if(!enabled && !force) throw new Error("自动同步已暂停，请先开启同步");
   const response=await fetch(`${boardURL}/api/collector-config`,{headers:{Authorization:`Bearer ${token}`},credentials:"omit",signal:AbortSignal.timeout(15000)});
   if(!response.ok) throw new Error("无法读取作业来源，请重新连接看板");
   const configuration=(await response.json()).sources;
@@ -48,11 +74,9 @@ async function performScan() {
     if(candidate.protocol!=="https:" || candidate.username || candidate.password || sourceFor(candidate.href)!==source) throw new Error(`${source} 作业页地址不正确`);
     const url=candidate.href;
     let tab;try{if(managedTabs[source]) tab=await chrome.tabs.get(managedTabs[source]);}catch{}
-    if(tab && tab.url && sourceFor(tab.url)===source) {
-      if(!tab.active) {
-        if(source==="chaoxing") await chrome.tabs.update(tab.id,{url});
-        else await chrome.tabs.reload(tab.id);
-      }else await chrome.tabs.sendMessage(tab.id,{type:"read-current"}).catch(()=>{});
+    if(tab && !tab.active && tab.url && sourceFor(tab.url)===source) {
+      if(source==="chaoxing") await chrome.tabs.update(tab.id,{url});
+      else await chrome.tabs.reload(tab.id);
     }else {
       const created=await chrome.tabs.create({url:"about:blank",active:false});managedTabs[source]=created.id;
       await chrome.storage.local.set({managedTabs});await chrome.tabs.update(created.id,{url});
@@ -60,7 +84,7 @@ async function performScan() {
   }
   await chrome.storage.local.set({managedTabs});return {ok:true};
 }
-function scan() {return scanning ||= performScan().finally(()=>{scanning=null;});}
+function scan(force=false) {return scanning ||= performScan(force).finally(()=>{scanning=null;});}
 async function configure() {
   const {enabled}=await chrome.storage.local.get("enabled");await chrome.alarms.clear("collect");
   if(enabled) await chrome.alarms.create("collect",{periodInMinutes:15});return {ok:true};
@@ -87,7 +111,14 @@ async function boardControl(message,sender) {
 }
 chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   if(message.type==="collection-context" && sender.tab) {
-    chrome.storage.local.get("managedTabs").then(({managedTabs={}})=>reply({managed:Object.values(managedTabs).includes(sender.tab.id)}));return true;
+    chrome.storage.local.get(["managedTabs","cloudEnabled"]).then(({managedTabs={},cloudEnabled=false})=>reply({managed:Object.values(managedTabs).includes(sender.tab.id),cloudEnabled}));return true;
+  }
+  if(message.type==="cloud-recipe" && sender.tab) {
+    const current=cloudQueue.then(()=>cloudRecipe(message,sender));cloudQueue=current.catch(async()=>{await chrome.storage.local.set({cloudLastResult:"云端授权保存失败，请到设置页重新授权并查看看板状态。"});});
+    current.then(reply).catch(error=>reply({error:error.message}));return true;
+  }
+  if(message.type==="cloud-authorize" && sender.url?.startsWith(chrome.runtime.getURL(""))) {
+    (async()=>{if(!await chrome.permissions.contains({permissions:["cookies"]}))throw new Error("需要先允许云端登录授权");await cloudAPI("/api/cloud-authorize",{});await chrome.storage.local.set({cloudEnabled:true,cloudRecipeCache:{},cloudLastResult:"等待读取三个平台的作业列表授权…"});await scan(true);return {ok:true};})().then(reply).catch(error=>reply({error:error.message}));return true;
   }
   if(message.type==="capture" && sender.tab) {
     const current=queue.then(()=>upload(message,sender));
@@ -102,5 +133,6 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   }
 });
 chrome.alarms.onAlarm.addListener(alarm=>{if(alarm.name==="collect") scan().catch(reportError);});
-chrome.runtime.onStartup.addListener(()=>configure().then(async()=>{const {enabled}=await chrome.storage.local.get("enabled");if(enabled) await scan();}).catch(reportError));
-chrome.runtime.onInstalled.addListener(()=>configure().catch(reportError));
+async function start() {await configure();const {enabled}=await chrome.storage.local.get("enabled");if(enabled) await scan();}
+chrome.runtime.onStartup.addListener(()=>start().catch(reportError));
+chrome.runtime.onInstalled.addListener(()=>start().catch(reportError));

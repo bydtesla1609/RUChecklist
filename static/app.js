@@ -378,13 +378,36 @@ $("collector-enabled").onchange=async()=>{
   finally{$("collector-enabled").disabled=false;}
 };
 $("collector-options").onclick=()=>collectorCommand("options").catch(error=>{$("source-error").textContent=error.message;});
+async function checkCloud() {
+  try {
+    const cloud=await api("/api/cloud");
+    $("cloud-run").disabled=!cloud.enabled;$("cloud-revoke").disabled=!cloud.enabled;
+    const lines=[element("p",!cloud.available?"云端服务尚未配置":cloud.enabled?"云端已启用，等待各平台授权与首次成功采集。":"尚未启用，教学网站登录授权仍只保留在你的电脑中。")];
+    if(cloud.enabled) for(const source of sources) {
+      const status=cloud.sources[source.id] || {};
+      lines.push(element("p",`${source.name}：${status.error || (status.last_success?`最近成功 ${formatTime(status.last_success)} · ${status.count} 项作业，识别状态 ${status.status_count} 项，更新 ${status.changed} 项`:status.authorized?"已收到授权，等待云端采集":"等待首次授权")}`));
+    }
+    $("cloud-status").replaceChildren(...lines);
+  }catch(error){$("cloud-status").textContent=error.message;}
+}
+$("cloud-authorize").onclick=()=>collectorCommand("options").catch(error=>{$("source-error").textContent=error.message;});
+$("cloud-run").onclick=async()=>{
+  $("cloud-run").disabled=true;$("cloud-status").textContent="云端正在检查作业，请稍候…";
+  try{await api("/api/cloud/run","POST",{});await refresh();}catch(error){$("source-error").textContent=error.message;}finally{await checkCloud();}
+};
+$("cloud-revoke").onclick=async()=>{
+  if(!confirm("关闭云端采集并删除服务器保存的教学网站登录授权？已导入的任务会保留。"))return;
+  try{await api("/api/cloud","DELETE");await checkCloud();}catch(error){$("source-error").textContent=error.message;}
+};
 function renderSources() {
   $("sources-list").replaceChildren(...sources.map(source => {
     const row = element("div", null, "source-row"), header = element("div");
     const link = element("a", `${source.name} ↗`); link.href = source.url; link.target = "_blank"; link.rel = "noopener noreferrer";
     const fresh = source.last_seen && Date.now() - new Date(source.last_seen).getTime() < 30 * 60000;
-    header.append(link, element("span", source.error ? "需处理" : fresh ? "已接收" : source.last_seen ? "等待新数据" : "待连接", "state" + (fresh && !source.error ? " connected" : "")));
+    const missingStates=source.imported_count>0 && source.status_count<source.imported_count;
+    header.append(link, element("span", source.error ? "需处理" : missingStates ? "状态未同步完整" : fresh ? "已接收" : source.last_seen ? "等待新数据" : "待连接", "state" + (fresh && !source.error && !missingStates ? " connected" : "")));
     row.append(header, element("p", source.error || (source.last_seen ? `上次接收 ${formatTime(source.last_seen)} · ${source.task_count} 项作业` : "尚未收到此网站的作业数据")));
+    if(source.imported_count) row.append(element("p",`已识别完成状态 ${source.status_count} / ${source.imported_count} 项${missingStates?"。请确认扩展已更新，并刷新教学网站的作业列表后同步。":""}`,"source-diagnostic"));
     const local=collectorState?.sourceResults?.[source.id];
     if(local?.time && (!source.last_seen || Date.parse(local.time)>=Date.parse(source.last_seen)-1000)) {
       row.append(element("p",local.error || `本机上次检查 · 读取 ${local.count} 项，更新 ${local.changed} 项${local.missingDates?` · ${local.missingDates} 项未提供完整截止时间`:""}`,"source-diagnostic"));
@@ -400,7 +423,7 @@ async function refresh() {
     if (sequence !== refreshSequence || hasDraft() || document.querySelector(".checklist[data-busy]")) return;
     $("login").hidden = true; $("workspace").hidden = false;
     tasks = data.tasks; sources = data.sources;
-    if($("sources-dialog").open && collectorState) checkCollector();
+    if($("sources-dialog").open) {if(collectorState)checkCollector();checkCloud();}
     $("storage-state").textContent = data.storage ? `附件空间：${fileSize(data.storage.used)} / ${fileSize(data.storage.limit)}` : "";
     const signature = JSON.stringify([tasks, sources, categoryFilter, Math.floor(Date.now()/60000)]);
     if (signature !== lastPayload) { render(); lastPayload = signature; }
@@ -451,7 +474,7 @@ document.addEventListener("click", event => { if (!event.target.closest(".add-co
 document.addEventListener("keydown", event => { if (event.key === "Escape" && !$("add-menu").hidden) { closeAddMenu(); $("add-task").focus(); } });
 $("add-task").onclick = startAdd;
 $("sync-state").onclick = refresh;
-$("sources-button").onclick = () => { renderSources(); $("sources-dialog").showModal(); checkCollector(); };
+$("sources-button").onclick = () => { renderSources(); $("sources-dialog").showModal(); checkCollector(); checkCloud(); };
 document.querySelectorAll(".close-dialog").forEach(button => button.onclick = () => button.closest("dialog").close());
 $("task-form").onsubmit = async event => {
   event.preventDefault(); $("save-task").disabled = true; $("task-error").textContent = "";

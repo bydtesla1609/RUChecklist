@@ -1,3 +1,4 @@
+import {cloudStatus,enableCloud,revokeCloud,saveCloudRecipe,runCloud} from "./cloud.mjs";
 export const SOURCES = {
   smartestu: {name: "SmartEstu", url: "https://smartestu.cn/assignment"},
   ketangpai: {name: "课堂派", url: "https://www.ketangpai.com/"},
@@ -104,7 +105,10 @@ async function collectorAuth(request,db) {
 }
 async function importTasks(request, db, sources) {
   await collectorAuth(request,db);
-  const payload=await body(request), {source,tasks,error}=payload;
+  return json(await applyImport(await body(request),db,sources));
+}
+async function applyImport(payload,db,sources) {
+  const {source,tasks,error}=payload;
   if(!Object.hasOwn(SOURCES,source) || !Array.isArray(tasks) || tasks.length>30) fail(400,"每批最多导入 30 项作业，且必须指定已配置来源");
   if(error!==undefined && (typeof error!=="string" || error.length>300 || tasks.length)) fail(400,"错误状态格式不正确");
   const count=payload.task_count ?? tasks.length;
@@ -112,13 +116,17 @@ async function importTasks(request, db, sources) {
   const stamp=now();
   const remoteChanged="excluded.source_status IS NOT NULL AND tasks.source_status IS NOT excluded.source_status";
   const nextStatus=`CASE WHEN ${remoteChanged} THEN excluded.source_status ELSE tasks.status END`;
-  const statements=tasks.map(item => {
+  const rows=tasks.map(item => {
     if(!item || typeof item!=="object" || typeof item.external_id!=="string" || !item.external_id || item.external_id.length>250) fail(400,"缺少稳定的作业编号");
     if(item.status!==undefined && !STATUSES.includes(item.status)) fail(400,"作业完成状态不正确");
     const task=validate({...item,category:"作业",status:item.status || "todo"},true), course=item.course || "";
     if(typeof course!=="string" || course.length>300) fail(400,"课程名称格式不正确");
-    return db.prepare(`INSERT INTO tasks(id,category,title,content,due_at,status,source,external_id,source_url,course,created_at,updated_at,completed_at,source_status)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source,external_id) DO UPDATE SET
+    return [crypto.randomUUID(),"作业",task.title,task.content,task.due_at,task.status,source,item.external_id,sourceURL(source,item.source_url,sources[source].url),course,stamp,stamp,completedAt(task.status,null,stamp),item.status ?? null];
+  });
+  // JSON input keeps one batch to one upsert and avoids D1's 100-bound-parameter ceiling.
+  const statements=[db.prepare(`INSERT INTO tasks(id,category,title,content,due_at,status,source,external_id,source_url,course,created_at,updated_at,completed_at,source_status)
+      SELECT ${Array.from({length:14},(_,index)=>`json_extract(value,'$[${index}]')`).join(",")} FROM json_each(?) WHERE 1
+      ON CONFLICT(source,external_id) DO UPDATE SET
       title=CASE WHEN instr(tasks.overrides,'"title"')=0 AND instr(tasks.overrides,'"content"')=0 THEN excluded.title ELSE tasks.title END,
       content=CASE WHEN instr(tasks.overrides,'"title"')=0 AND instr(tasks.overrides,'"content"')=0 THEN excluded.content ELSE tasks.content END,
       due_at=CASE WHEN tasks.category='作业' AND instr(tasks.overrides,'"due_at"')=0 THEN coalesce(excluded.due_at,tasks.due_at) ELSE tasks.due_at END,
@@ -128,11 +136,10 @@ async function importTasks(request, db, sources) {
       course=excluded.course, source_url=excluded.source_url, updated_at=excluded.updated_at, revision=tasks.revision+1
       WHERE tasks.deleted=0 AND ((instr(tasks.overrides,'"title"')=0 AND instr(tasks.overrides,'"content"')=0 AND tasks.title IS NOT excluded.title)
       OR (tasks.category='作业' AND instr(tasks.overrides,'"due_at"')=0 AND excluded.due_at IS NOT NULL AND tasks.due_at IS NOT excluded.due_at) OR tasks.course IS NOT excluded.course OR tasks.source_url IS NOT excluded.source_url OR (${remoteChanged}))`)
-      .bind(crypto.randomUUID(),"作业",task.title,task.content,task.due_at,task.status,source,item.external_id,sourceURL(source,item.source_url,sources[source].url),course,stamp,stamp,completedAt(task.status,null,stamp),item.status ?? null);
-  });
+      .bind(JSON.stringify(rows))];
   statements.push(db.prepare("UPDATE sources SET last_seen=?,task_count=?,error=? WHERE id=?").bind(stamp,count,error || null,source));
   const result=await db.batch(statements);
-  return json({changed:result.slice(0,-1).reduce((sum,r)=>sum+r.meta.changes,0)});
+  return {changed:result.slice(0,-1).reduce((sum,r)=>sum+r.meta.changes,0)};
 }
 async function uploadFile(request,db) {
   const contentType=request.headers.get("Content-Type") || "";
@@ -205,7 +212,7 @@ async function route(request, env) {
   if(!db || !env.BOARD_PASSWORD_HASH) fail(503,"看板尚未完成部署配置");
   if(!["GET","HEAD"].includes(method)) {
     const origin=request.headers.get("Origin");
-    if(path!=="/api/import" && ((origin && origin!==url.origin) || request.headers.get("Sec-Fetch-Site")==="cross-site")) fail(403,"不允许跨站请求");
+    if(!["/api/import","/api/cloud-authorize","/api/cloud-credentials"].includes(path) && ((origin && origin!==url.origin) || request.headers.get("Sec-Fetch-Site")==="cross-site")) fail(403,"不允许跨站请求");
   }
   if(path==="/api/login" && method==="POST") {
     const data=await body(request);
@@ -225,11 +232,16 @@ async function route(request, env) {
     return json({ok:true},200,{"Set-Cookie":cookie(request,token,30*86400)});
   }
   if(path==="/api/import" && method==="POST") return importTasks(request,db,configuredSources(env));
-  if(path==="/api/collector-config" && method==="GET") { await collectorAuth(request,db); return json({sources:configuredSources(env)}); }
+  if(path==="/api/collector-config" && method==="GET") { await collectorAuth(request,db); return json({sources:configuredSources(env),cloud_enabled:(await cloudStatus(env)).enabled}); }
+  if(path==="/api/cloud-authorize" && method==="POST") {await collectorAuth(request,db);return json(await enableCloud(env));}
+  if(path==="/api/cloud-credentials" && method==="POST") {await collectorAuth(request,db);const value=await body(request);return json(await saveCloudRecipe(env,value.source,value.recipe));}
   const hash=await sessionHash(request);
   const authenticated=!!(await db.prepare("SELECT 1 FROM sessions WHERE hash=? AND expires>?").bind(hash,Date.now()).first());
   if(path==="/api/session" && method==="GET") return json({authenticated});
   if(!authenticated) fail(401,"请先登录看板");
+  if(path==="/api/cloud" && method==="GET") return json(await cloudStatus(env));
+  if(path==="/api/cloud" && method==="DELETE") return json(await revokeCloud(env));
+  if(path==="/api/cloud/run" && method==="POST") return json(await runCloud(env,payload=>applyImport(payload,db,configuredSources(env))));
   if(path==="/api/files" && method==="POST") return uploadFile(request,db);
   const fileMatch=path.match(/^\/api\/files\/([a-zA-Z0-9-]{1,50})$/);
   if(fileMatch && ["GET","HEAD"].includes(method)) return downloadFile(request,db,fileMatch[1]);
@@ -238,7 +250,7 @@ async function route(request, env) {
     return json({ok:true},200,{"Set-Cookie":cookie(request,"",0)});
   }
   if(path==="/api/board" && method==="GET") {
-    const [tasks,sources,files,storage]=await db.batch([db.prepare("SELECT * FROM tasks WHERE deleted=0 AND (status<>'done' OR completed_at IS NULL OR completed_at>?) ORDER BY created_at DESC").bind(archiveCutoff()),db.prepare("SELECT * FROM sources"),
+    const [tasks,sources,files,storage]=await db.batch([db.prepare("SELECT * FROM tasks WHERE deleted=0 AND (status<>'done' OR completed_at IS NULL OR completed_at>?) ORDER BY created_at DESC").bind(archiveCutoff()),db.prepare("SELECT sources.*, (SELECT count(*) FROM tasks WHERE tasks.source=sources.id AND tasks.deleted=0) AS imported_count, (SELECT count(*) FROM tasks WHERE tasks.source=sources.id AND tasks.deleted=0 AND tasks.source_status IS NOT NULL) AS status_count FROM sources"),
       db.prepare("SELECT id,name,type,size FROM files WHERE id IN (SELECT value FROM tasks,json_each(tasks.attachments) WHERE tasks.deleted=0)"),db.prepare("SELECT coalesce(sum(size),0) AS used FROM files")]);
     const configuration=configuredSources(env);
     const byId=new Map(files.results.map(file=>[file.id,file]));
@@ -299,6 +311,7 @@ async function route(request, env) {
   fail(404,"接口不存在");
 }
 export default {
+  async scheduled(event,env,ctx) {ctx.waitUntil(runCloud(env,payload=>applyImport(payload,env.DB,configuredSources(env))));},
   async fetch(request, env) {
     let response;
     try { response=await route(request,env); }

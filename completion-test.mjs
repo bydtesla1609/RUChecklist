@@ -26,6 +26,8 @@ test("completion transitions, unchanged imports, seven-day archive and protected
     const id=(await api("/api/board")).data.tasks[0].id;
     const get=async()=>(await api(`/api/tasks/${id}`)).data;
     assert.equal((await get()).completed_at,null);
+    let source=(await api("/api/board")).data.sources.find(item=>item.id==="smartestu");
+    assert.equal(source.imported_count,1);assert.equal(source.status_count,1);
     task.status="done";assert.equal((await upload()).data.changed,1);
     let current=await get();const firstTime=current.completed_at,revision=current.revision;
     assert.ok(firstTime);assert.equal(current.due_at,task.due_at.replace("Z",".000Z"));
@@ -89,12 +91,12 @@ test("platform states distinguish completed, partial and returned submissions",(
 test("learning scan preserves signed course entry and repairs an old managed tab",async()=>{
   const entry="https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/stu?courseid=course&clazzid=class&cpi=student&enc=test-signature&t=123";
   let saved={enabled:true,boardURL:"https://board.example",token:"test",managedTabs:{chaoxing:3}};
-  const updated=[],noop={addListener(){}};let nextId=4;
+  const updated=[],noop={addListener(){}};let nextId=4,active=false;
   const context=vm.createContext({URL,AbortSignal,
     fetch:async()=>({ok:true,json:async()=>({sources:{chaoxing:{url:entry}}})}),
     chrome:{storage:{local:{get:async()=>structuredClone(saved),set:async value=>{saved={...saved,...structuredClone(value)};}}},
-      action:{onClicked:noop},runtime:{onMessage:noop,onStartup:noop,onInstalled:noop},alarms:{onAlarm:noop},
-      tabs:{get:async id=>({id,active:false,url:"https://mooc1.chaoxing.com/visit/stucoursemiddle?courseid=course"}),
+      action:{onClicked:noop},runtime:{onMessage:noop,onStartup:noop,onInstalled:noop},alarms:{onAlarm:noop,clear:async()=>{},create:async()=>{}},
+      tabs:{get:async id=>({id,active,url:"https://mooc1.chaoxing.com/visit/stucoursemiddle?courseid=course"}),
         create:async()=>({id:nextId++}),update:async(id,{url})=>updated.push({id,url}),reload:async()=>{throw new Error("Stale entry must be replaced");}}}});
   vm.runInContext(await readFile(new URL("./extension/background.js",import.meta.url),"utf8"),context);
   await vm.runInContext("performScan()",context);
@@ -102,4 +104,9 @@ test("learning scan preserves signed course entry and repairs an old managed tab
   saved.managedTabs={};updated.length=0;
   await vm.runInContext("performScan()",context);
   assert.equal(updated.find(tab=>tab.url.includes("chaoxing.com")).url,entry);
+  active=true;updated.length=0;saved.managedTabs={chaoxing:3};
+  await vm.runInContext("start()",context);
+  assert.equal(updated.length,3);assert.ok(updated.every(tab=>tab.id!==3));
+  saved.enabled=false;updated.length=0;
+  await vm.runInContext("start()",context);assert.equal(updated.length,0);
 });
