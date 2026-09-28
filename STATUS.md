@@ -5,13 +5,14 @@
 ## 已发布
 
 - 正式看板：[campus-task-board.pages.dev](https://campus-task-board.pages.dev)。
-- 本次 Pages 部署：[c796b266.campus-task-board.pages.dev](https://c796b266.campus-task-board.pages.dev)。
+- 本次 Pages 部署：[7fa2b8a6.campus-task-board.pages.dev](https://7fa2b8a6.campus-task-board.pages.dev)。
 - 公开仓库已更名：[RUChecklist](https://github.com/bydtesla1609/RUChecklist)。
 - 独立 Cloudflare Pages 项目与 D1 数据库。旧数据已备份，执行了标题 / 清单、附件 / 链接及完成时间三次增量迁移。此次升级前单独保存了私有数据库备份。
 - 旧内容完整保留为标题；访问密码和登录方式不变。所有私人配置、备份、数据库、登录凭据均排除在公开源码之外。
 
 ## RUChecklist 2.4
 
+- 日历下方卡片桌面每行三张，窄屏维持单列。UI 检查及截图验证通过，线上 CSS 与验证版本一致；Worker 版本 `af5aa0ed-85cd-4bff-be37-17f4e382fed7`。
 - 日历仅显示未完成作业：日期格、当天列表和未定日期使用同一过滤规则；完成后隐藏，重新打开后恢复。其他类别及作业分栏不受影响。隔离 UI 验证通过，正式脚本与已验证版本逐字节一致；Worker 版本 `a827e8c7-0459-4fa9-ad1b-5ce9f16f0fdc`。
 - 产品、扩展及文档名称统一为 RUChecklist；服务地址沿用原部署。
 - 首页更换为月历：月份切换、今天、按北京时间展示任务、长标题省略、日期选中和当天列表、未定日期入口；其他板块保留状态列。
