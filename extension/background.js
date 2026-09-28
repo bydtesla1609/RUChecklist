@@ -5,6 +5,7 @@ const SOURCES={
 };
 const HOSTS={"smartestu.cn":"smartestu","www.ketangpai.com":"ketangpai","mooc2-ans.chaoxing.com":"chaoxing"};
 let queue=Promise.resolve();
+chrome.action.onClicked.addListener(()=>chrome.runtime.openOptionsPage());
 async function upload(message,sender) {
   const source=HOSTS[new URL(sender.url).hostname];
   if(!source || source!==message.source) throw new Error("来源不匹配");
