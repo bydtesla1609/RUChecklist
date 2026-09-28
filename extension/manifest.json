@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "大学任务看板 · 作业导入",
-  "version": "1.3.2",
+  "version": "1.3.4",
   "description": "从已登录的教学网站读取作业标题和截止时间，导入你自己的看板。",
   "permissions": [
     "storage",
@@ -19,6 +19,7 @@
   ],
   "optional_host_permissions": [
     "https://*/*",
+    "http://*.chaoxing.com/*",
     "http://127.0.0.1/*",
     "http://localhost/*"
   ],

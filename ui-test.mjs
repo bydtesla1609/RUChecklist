@@ -177,7 +177,7 @@ try {
     });
   });
   await page.locator("#sources-button").click();await page.locator("#collector-controls").waitFor({state:"visible"});
-  await page.locator("#collector-scan").click();assert.equal(await page.evaluate(()=>window.testScanCount),1);
+  await page.locator("#collector-scan").click();await page.waitForFunction(()=>window.testScanCount===1);
   await page.locator("#collector-enabled").uncheck();await page.waitForFunction(()=>document.getElementById("collector-state").textContent.includes("已暂停"));
   assert.equal(await page.locator("#collector-scan").isDisabled(),true);
   await page.screenshot({path:"data/screenshots/sources.png"});

@@ -25,7 +25,7 @@ try {
     globalThis.chrome={storage:{local:{get:async keys=>{
       const data=stored();return typeof keys==="string"?{[keys]:data[keys]}:data;
     },set:async value=>localStorage.setItem("test-saved-settings",JSON.stringify({...stored(),...value}))}},
-    runtime:{sendMessage:async message=>{runtimeMessages.push(message.type);return {ok:true};},getManifest:()=>({version:"test"})},extension:{getViews:()=>[]},permissions:{request:async value=>{globalThis.lastPermissions=value;return globalThis.allowPermission===true;}}};
+    runtime:{sendMessage:async message=>{runtimeMessages.push(message.type);return {ok:true};},getManifest:()=>({version:"test",optional_host_permissions:["http://*.chaoxing.com/*"]})},extension:{getViews:()=>[]},permissions:{request:async value=>{globalThis.lastPermissions=value;return globalThis.allowPermission===true;}}};
   });
   async function openSettings() {
     const page=await context.newPage();await page.goto(optionsURL);
@@ -75,7 +75,10 @@ try {
   assert.match(await page.locator("#cloud-result").textContent(),/未获得/);assert.equal(await page.evaluate(()=>runtimeMessages.includes("cloud-authorize")),false);
   await page.evaluate(()=>globalThis.allowPermission=true);await page.locator("#cloud-authorize").click();
   await page.waitForFunction(()=>document.getElementById("cloud-result").textContent.includes("已启用"));assert.equal(await page.evaluate(()=>runtimeMessages.includes("cloud-authorize")),true);
-  assert.ok((await page.evaluate(()=>lastPermissions.origins)).includes("https://chaoxing.com/*"));
+  assert.ok((await page.evaluate(()=>lastPermissions.origins)).includes("http://*.chaoxing.com/*"));
+  assert.ok((await page.evaluate(()=>lastPermissions.origins)).includes("https://*.chaoxing.com/*"));
+  await page.evaluate(()=>{const current=chrome.runtime.getManifest;chrome.runtime.getManifest=()=>({version:"old"});window.restoreManifest=()=>{chrome.runtime.getManifest=current;};lastPermissions=null;});
+  await page.locator("#cloud-authorize").click();assert.match(await page.locator("#cloud-result").textContent(),/尚未加载新增权限/);assert.equal(await page.evaluate(()=>lastPermissions),null);await page.evaluate(()=>restoreManifest());
   await page.evaluate(()=>{chrome.runtime.sendMessage=async()=>undefined;chrome.runtime.reload=()=>{window.testReloaded=true;};});
   await page.locator("#cloud-authorize").click();await page.waitForFunction(()=>document.getElementById("cloud-result").textContent.includes("未确认授权"));
   await page.locator("#reload-extension").click();assert.equal(await page.evaluate(()=>window.testReloaded),true);

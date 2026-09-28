@@ -277,7 +277,6 @@ function render() {
     const header = element("div", null, "column-heading");
     header.append(element("span", null, "line"), element("h3", label), element("span", String(matching.length), "count"));
     column.append(header);
-    if(state==="done") column.append(element("p","最近 7 天 · 按完成时间倒序","column-note"));
     if (matching.length) column.append(...matching.map(card));
     else {
       const empty = element("div", null, "empty");

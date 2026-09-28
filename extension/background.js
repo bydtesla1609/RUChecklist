@@ -26,7 +26,7 @@ async function cloudRecipe(message,sender) {
   if(!response.ok)throw new Error("无法确认云端授权，请重新连接看板");
   if(!(await response.json()).cloud_enabled){await chrome.storage.local.set({cloudEnabled:false,cloudRecipeCache:{}});return {skipped:true};}
   if(!await chrome.permissions.contains({permissions:["cookies"]})) throw new Error("请在扩展设置中授权云端采集");
-  if(!await chrome.permissions.contains({origins:[`${new URL(message.recipe.url).origin}/*`,...(message.source==="chaoxing"?["https://chaoxing.com/*"]:[])]})) throw new Error("缺少此平台的登录读取权限，请点击“授权并启用云端采集”补充权限");
+  if(!await chrome.permissions.contains({origins:[`${new URL(message.recipe.url).origin}/*`,...(message.source==="chaoxing"?["http://*.chaoxing.com/*","https://*.chaoxing.com/*"]:[])]})) throw new Error("缺少此平台的登录读取权限，请点击“授权并启用云端采集”补充权限");
   const cookies=await chrome.cookies.getAll({url:message.recipe.url});
   const recipe={...message.recipe,page_url:sender.url,headers:{...message.recipe.headers,cookie:cookies.map(cookie=>`${cookie.name}=${cookie.value}`).join("; ")}};
   const fingerprint=[...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(JSON.stringify(recipe))))].map(x=>x.toString(16).padStart(2,"0")).join("");
