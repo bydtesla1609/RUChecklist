@@ -55,7 +55,7 @@
   chrome.runtime.sendMessage({type:"collection-context"}).then(result=>{managed=!!result?.managed;cloudEnabled=!!result?.cloudEnabled;window.postMessage({kind:"campus-cloud-mode",enabled:cloudEnabled},location.origin);readLearning();}).catch(()=>{});
   chrome.runtime.onMessage.addListener(message=>{if(message.type==="read-current") {lastDocument="";readLearning();}});
   setTimeout(()=>{
-    if(seen || !managed || (window.top!==window && source!=="chaoxing")) return;
+    if(seen || !managed || (window.top!==window && (source!=="chaoxing" || !/\/work\/(list|all-task)(?:\?|$)/.test(location.href)))) return;
     const text=document.body?.innerText || "";
     const login=/登录|登 录/.test(text) && !!document.querySelector('input[type="password"]');
     send([],login?"登录已失效，请在 Edge 中重新登录此教学网站":source==="chaoxing"

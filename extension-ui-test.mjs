@@ -25,7 +25,7 @@ try {
     globalThis.chrome={storage:{local:{get:async keys=>{
       const data=stored();return typeof keys==="string"?{[keys]:data[keys]}:data;
     },set:async value=>localStorage.setItem("test-saved-settings",JSON.stringify({...stored(),...value}))}},
-    runtime:{sendMessage:async message=>{runtimeMessages.push(message.type);return {ok:true};},getManifest:()=>({version:"test"})},extension:{getViews:()=>[]},permissions:{request:async()=>globalThis.allowPermission===true}};
+    runtime:{sendMessage:async message=>{runtimeMessages.push(message.type);return {ok:true};},getManifest:()=>({version:"test"})},extension:{getViews:()=>[]},permissions:{request:async value=>{globalThis.lastPermissions=value;return globalThis.allowPermission===true;}}};
   });
   async function openSettings() {
     const page=await context.newPage();await page.goto(optionsURL);
@@ -75,6 +75,7 @@ try {
   assert.match(await page.locator("#cloud-result").textContent(),/未获得/);assert.equal(await page.evaluate(()=>runtimeMessages.includes("cloud-authorize")),false);
   await page.evaluate(()=>globalThis.allowPermission=true);await page.locator("#cloud-authorize").click();
   await page.waitForFunction(()=>document.getElementById("cloud-result").textContent.includes("已启用"));assert.equal(await page.evaluate(()=>runtimeMessages.includes("cloud-authorize")),true);
+  assert.ok((await page.evaluate(()=>lastPermissions.origins)).includes("https://chaoxing.com/*"));
   await page.evaluate(()=>{chrome.runtime.sendMessage=async()=>undefined;chrome.runtime.reload=()=>{window.testReloaded=true;};});
   await page.locator("#cloud-authorize").click();await page.waitForFunction(()=>document.getElementById("cloud-result").textContent.includes("未确认授权"));
   await page.locator("#reload-extension").click();assert.equal(await page.evaluate(()=>window.testReloaded),true);
@@ -94,6 +95,14 @@ try {
   await capture.evaluate(()=>new Promise(resolve=>{const xhr=new XMLHttpRequest();xhr.open("POST","/api/homework/student/mark/queryHomeworks");xhr.setRequestHeader("Content-Type","application/json");xhr.setRequestHeader("Authorization","Bearer xhr-synthetic");xhr.onload=resolve;xhr.send('{"courseid":"test"}');}));
   await capture.waitForFunction(()=>messages.filter(m=>m.kind==="campus-cloud-recipe-v1").length===2);
   assert.equal(await capture.evaluate(()=>messages.filter(m=>m.kind==="campus-cloud-recipe-v1")[1].recipe.headers.authorization),"Bearer xhr-synthetic");
+  await captureContext.route("**/FutureV2/CourseMeans/getCourseContent",route=>route.fulfill({contentType:"application/json",headers:{"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"token,content-type"},body:JSON.stringify({data:{list:[{id:"test",title:"课堂派验证",contenttype:4,mstatus:1}]}})}));
+  await capture.goto("https://www.ketangpai.com/#/main/classDetail?courseid=test-course");
+  await capture.evaluate(()=>{window.messages=[];addEventListener("message",event=>messages.push(event.data));});
+  for(const name of ["cloud-routes.js","parsers.js","capture.js"])await capture.addScriptTag({content:await readFile(new URL(name,extension),"utf8")});
+  await capture.evaluate(()=>window.postMessage({kind:"campus-cloud-mode",enabled:true},location.origin));
+  await capture.evaluate(()=>new Promise(resolve=>{const xhr=new XMLHttpRequest();xhr.open("POST","https://openapiv5.ketangpai.com//FutureV2/CourseMeans/getCourseContent");xhr.setRequestHeader("Content-Type","application/json");xhr.setRequestHeader("token","synthetic-class-token");xhr.onload=resolve;xhr.send('{"courseid":"test-course"}');}));
+  await capture.waitForFunction(()=>messages.some(m=>m.kind==="campus-cloud-recipe-v1"));
+  assert.equal(await capture.evaluate(()=>messages.find(m=>m.kind==="campus-cloud-recipe-v1").recipe.headers.token),"synthetic-class-token");
   await captureContext.close();
   await mkdir("data/screenshots",{recursive:true});await page.screenshot({path:"data/screenshots/extension.png",fullPage:true});
   console.log("PASS: Chaoxing DOM metadata and submission statuses; settings UI preserves draft through tab switching, close/reopen and reload; permission denial retains draft; successful save clears draft and restores active settings. Chrome APIs simulated; user's Edge untouched.");

@@ -21,31 +21,36 @@ test("cloud authorization is encrypted, scoped, independently scheduled, increme
     const token=(await api("/api/collector-token","POST",{})).data.token,auth={Authorization:`Bearer ${token}`};
     assert.equal((await api("/api/cloud-authorize","POST",{},auth)).status,503);
     env.CLOUD_ENCRYPTION_KEY="12".repeat(32);
-    const smart={source:"smartestu",recipe:{url:"https://smartestu.cn/api/homework/student/mark/queryHomeworks",method:"GET",page_url:"https://smartestu.cn/assignment",headers:{authorization:"Bearer synthetic-private-session",cookie:"session=synthetic-cookie"}}};
+    const smart={source:"smartestu",recipe:{url:"https://smartestu.cn/api/homework/student/mark/queryHomeworks",method:"POST",page_url:"https://smartestu.cn/assignment",headers:{authorization:"Bearer synthetic-private-session",cookie:"session=synthetic-cookie","content-type":"application/json"},body:JSON.stringify({pageNo:1,pageSize:20})}};
     assert.equal((await api("/api/cloud-credentials","POST",smart,auth)).status,403);
     assert.equal((await api("/api/cloud-authorize","POST",{})).status,401);
     assert.equal((await api("/api/cloud-authorize","POST",{},auth)).status,200);
     for(const url of ["http://127.0.0.1/private","https://smartestu.cn/api/homework/submit","https://evil.example/api/homework/student/mark/queryHomeworks"])assert.equal((await api("/api/cloud-credentials","POST",{...smart,recipe:{...smart.recipe,url}},auth)).status,400);
     assert.equal((await api("/api/cloud-credentials","POST",smart,auth)).status,200);
-    const ketang={source:"ketangpai",recipe:{url:"https://openapiv5.ketangpai.com/FutureV2/CourseMeans/getCourseContent",method:"POST",page_url:"https://www.ketangpai.com/#/main/classDetail?courseid=test-course",headers:{token:"synthetic-class-token","content-type":"application/json"},body:JSON.stringify({courseid:"test-course",page:1})}};
+    const ketang={source:"ketangpai",recipe:{url:"https://openapiv5.ketangpai.com//FutureV2/CourseMeans/getCourseContent",method:"POST",page_url:"https://www.ketangpai.com/#/main/classDetail?courseid=test-course",headers:{token:"synthetic-class-token","content-type":"application/json"},body:JSON.stringify({courseid:"test-course",page:1})}};
     assert.equal((await api("/api/cloud-credentials","POST",ketang,auth)).status,200);
     const encrypted=database.prepare("SELECT value FROM settings WHERE key LIKE 'cloud_credential_%'").all();
     assert.equal(encrypted.length,2);assert.ok(encrypted.every(row=>!row.value.includes("synthetic")));
     const state=JSON.stringify((await api("/api/cloud")).data);assert.ok(!state.includes("synthetic") && !state.includes("cookie"));
     globalThis.fetch=async(url,options)=>{
       requests++;assert.equal(options.redirect,"manual");
-      if(url.includes("smartestu")){assert.equal(options.headers.authorization,smart.recipe.headers.authorization);if(failSmart)return new Response("login",{status:302,headers:{location:"https://evil.example/"}});return Response.json({studentCourseHomeworkDTOList:[{id:"one",name:"云端读取的作业",submission_status:remoteStatus}]});}
+      if(url==="https://smartestu.cn/api/auth/session") {
+        assert.equal(options.method,"GET");assert.equal(options.headers.cookie,smart.recipe.headers.cookie);assert.equal(options.headers["x-auth-protocol"],"cookie-v1");
+        return Response.json({sessionContext:"synthetic-context",csrfToken:"synthetic-csrf"});
+      }
+      if(url.includes("smartestu")){assert.equal(options.headers["x-session-context"],"synthetic-context");assert.equal(options.headers["x-csrf-token"],"synthetic-csrf");}
+      if(url.includes("smartestu")){assert.equal(options.headers.authorization,smart.recipe.headers.authorization);if(failSmart)return new Response("login",{status:302,headers:{location:"https://evil.example/"}});const page=JSON.parse(options.body).pageNo;assert.ok([1,2].includes(page));return Response.json({data:{pageNo:page,pageTotal:2,courseHomeworkDTOList:[{studentCourseHomeworkDTOList:[{id:`one-page-${page}`,name:`云端读取的作业 ${page}`,submission_status:remoteStatus}]}]}});}
       assert.equal(options.headers.token,ketang.recipe.headers.token);
       return Response.json({list:[{contenttype:4,id:"two",title:"课堂派作业",mstatus:1}]});
     };
-    let run=await api("/api/cloud/run","POST",{});assert.equal(run.status,200);assert.equal(run.data.smartestu.changed,1);assert.equal(run.data.ketangpai.changed,1);
-    let tasks=(await api("/api/board")).data.tasks;assert.equal(tasks.length,2);assert.ok(tasks.every(task=>task.status==="done" && task.completed_at));
+    let run=await api("/api/cloud/run","POST",{});assert.equal(run.status,200);assert.equal(run.data.smartestu.changed,2);assert.equal(run.data.smartestu.status_count,2);assert.equal(run.data.ketangpai.changed,1);
+    let tasks=(await api("/api/board")).data.tasks;assert.equal(tasks.length,3);assert.ok(tasks.every(task=>task.status==="done" && task.completed_at));
     const previous=tasks.map(task=>[task.id,task.revision,task.completed_at]);
     const waits=[];await worker.scheduled({},env,{waitUntil(p){waits.push(p);}});await Promise.all(waits);
     tasks=(await api("/api/board")).data.tasks;assert.deepEqual(tasks.map(task=>[task.id,task.revision,task.completed_at]),previous);
     remoteStatus="not_submitted";await api("/api/cloud/run","POST",{});
     tasks=(await api("/api/board")).data.tasks;assert.equal(tasks.find(task=>task.source==="smartestu").status,"todo");
-    failSmart=true;run=await api("/api/cloud/run","POST",{});assert.match(run.data.smartestu.error,/登录授权/);assert.equal(run.data.ketangpai.error,null);assert.equal((await api("/api/board")).data.tasks.length,2);
+    failSmart=true;run=await api("/api/cloud/run","POST",{});assert.match(run.data.smartestu.error,/登录授权/);assert.equal(run.data.ketangpai.error,null);assert.equal((await api("/api/board")).data.tasks.length,3);
     await api("/api/cloud","DELETE");assert.equal(database.prepare("SELECT count(*) AS n FROM settings WHERE key LIKE 'cloud_credential_%'").get().n,0);
     const before=requests;assert.equal((await api("/api/cloud/run","POST",{})).data.skipped,true);assert.equal(requests,before);
     assert.equal((await api("/api/cloud-credentials","POST",smart,auth)).status,403);

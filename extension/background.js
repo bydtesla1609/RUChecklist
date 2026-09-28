@@ -6,6 +6,10 @@ function sourceFor(url) {
   return host==="smartestu.cn"?"smartestu":host==="www.ketangpai.com"?"ketangpai":/(^|\.)chaoxing\.com$/.test(host)?"chaoxing":null;
 }
 let queue=Promise.resolve(),cloudQueue=Promise.resolve(),scanning=null;
+async function cloudResult(source,message) {
+  const {cloudSourceResults={}}=await chrome.storage.local.get("cloudSourceResults");
+  cloudSourceResults[source]=message;await chrome.storage.local.set({cloudSourceResults});
+}
 async function cloudAPI(path,value) {
   const {boardURL,token}=await chrome.storage.local.get(["boardURL","token"]);
   if(boardURL!==BOARD_ORIGIN || !token) throw new Error("请先连接正式看板，再授权云端采集");
@@ -22,6 +26,7 @@ async function cloudRecipe(message,sender) {
   if(!response.ok)throw new Error("无法确认云端授权，请重新连接看板");
   if(!(await response.json()).cloud_enabled){await chrome.storage.local.set({cloudEnabled:false,cloudRecipeCache:{}});return {skipped:true};}
   if(!await chrome.permissions.contains({permissions:["cookies"]})) throw new Error("请在扩展设置中授权云端采集");
+  if(!await chrome.permissions.contains({origins:[`${new URL(message.recipe.url).origin}/*`,...(message.source==="chaoxing"?["https://chaoxing.com/*"]:[])]})) throw new Error("缺少此平台的登录读取权限，请点击“授权并启用云端采集”补充权限");
   const cookies=await chrome.cookies.getAll({url:message.recipe.url});
   const recipe={...message.recipe,page_url:sender.url,headers:{...message.recipe.headers,cookie:cookies.map(cookie=>`${cookie.name}=${cookie.value}`).join("; ")}};
   const fingerprint=[...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(JSON.stringify(recipe))))].map(x=>x.toString(16).padStart(2,"0")).join("");
@@ -29,6 +34,7 @@ async function cloudRecipe(message,sender) {
   await cloudAPI("/api/cloud-credentials",{source:message.source,recipe});
   cloudRecipeCache[fingerprint]=Date.now();
   await chrome.storage.local.set({cloudRecipeCache:Object.fromEntries(Object.entries(cloudRecipeCache).slice(-50)),cloudLastResult:"已保存云端授权，请到看板点击云端立即同步。"});
+  await cloudResult(message.source,"授权已保存，等待云端验证");
   return {ok:true};
 }
 chrome.action.onClicked.addListener(()=>chrome.runtime.openOptionsPage());
@@ -114,7 +120,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
     chrome.storage.local.get(["managedTabs","cloudEnabled"]).then(({managedTabs={},cloudEnabled=false})=>reply({managed:Object.values(managedTabs).includes(sender.tab.id),cloudEnabled}));return true;
   }
   if(message.type==="cloud-recipe" && sender.tab) {
-    const current=cloudQueue.then(()=>cloudRecipe(message,sender));cloudQueue=current.catch(async()=>{await chrome.storage.local.set({cloudLastResult:"云端授权保存失败，请到设置页重新授权并查看看板状态。"});});
+    const current=cloudQueue.then(()=>cloudRecipe(message,sender));cloudQueue=current.catch(error=>cloudResult(message.source,error.message));
     current.then(reply).catch(error=>reply({error:error.message}));return true;
   }
   if(message.type==="cloud-authorize" && sender.url?.startsWith(chrome.runtime.getURL(""))) {

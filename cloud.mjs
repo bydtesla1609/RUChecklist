@@ -41,6 +41,8 @@ function recipeId(recipe) {
   const clean=value=>Array.isArray(value)?value.map(clean):value && typeof value==="object"?Object.fromEntries(Object.entries(value).filter(([name])=>!/token|authorization|cookie|enc|timestamp|^t$|^_$|^_t$/i.test(name)).sort(([a],[b])=>a.localeCompare(b)).map(([name,v])=>[name,clean(v)])):value;
   const url=new URL(recipe.url);let body=recipe.body;
   if(body) {try{body=JSON.parse(body);}catch{body=Object.fromEntries(new URLSearchParams(body));}}
+  if(CampusCloudRoutes.source(url.href)==="smartestu" && body && typeof body==="object") delete body.pageNo;
+  if(CampusCloudRoutes.source(url.href)==="chaoxing") url.searchParams.delete("pageNum");
   return JSON.stringify([url.origin,url.pathname,clean(Object.fromEntries(url.searchParams)),clean(body)]);
 }
 export async function cloudStatus(env) {
@@ -93,6 +95,13 @@ async function fetchList(recipe,fetcher) {
   for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>4*1024*1024){await reader.cancel();throw error(502,"作业列表过大，请按课程授权");}chunks.push(value);}
   const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}return new TextDecoder().decode(bytes);
 }
+async function smartSession(recipe,fetcher) {
+  // SmartEstu binds list requests to the current cookie session and CSRF token.
+  const raw=await fetchList({url:"https://smartestu.cn/api/auth/session",method:"GET",headers:{cookie:recipe.headers.cookie || "","x-auth-protocol":"cookie-v1"}},fetcher);
+  let session;try{session=JSON.parse(raw);}catch{}
+  if(!session || [session.sessionContext,session.csrfToken].some(value=>typeof value!=="string" || !value || value.length>16000 || /[\r\n]/.test(value))) throw error(401,"SmartEstu 登录授权已失效，请在 Edge 登录后重新授权");
+  return {...recipe,headers:{...recipe.headers,"x-auth-protocol":"cookie-v1","x-session-context":session.sessionContext,"x-csrf-token":session.csrfToken}};
+}
 export async function runCloud(env,importBatch,{fetcher=fetch,Rewriter=globalThis.HTMLRewriter}={}) {
   if(await get(env,"cloud_enabled")!=="1") return {skipped:true};
   // One board, one collector at a time; the lease also protects overlapping manual and scheduled runs.
@@ -108,7 +117,8 @@ export async function runCloud(env,importBatch,{fetcher=fetch,Rewriter=globalThi
       try {
         const tasks=new Map(),recipes=await open(env,source,encrypted);let requestCount=0;
         for(const stored of recipes) {
-          const recipe=validateRecipe(source,stored);
+          let recipe=validateRecipe(source,stored);
+          if(source==="smartestu") recipe=await smartSession(recipe,fetcher);
           if(++requestCount>5) throw error(502,"此平台列表超过云端单次 5 页上限，请分课程授权");
           const raw=await fetchList(recipe,fetcher);let parsed;
           if(source==="chaoxing") {
@@ -122,6 +132,20 @@ export async function runCloud(env,importBatch,{fetcher=fetch,Rewriter=globalThi
             let data;try{data=JSON.parse(raw);}catch{throw error(401,"教学网站没有返回作业数据，请重新登录并授权");}
             parsed=CampusParsers.parse(source,recipe.url,data,recipe.page_url);
             if(parsed===null) throw error(502,"未识别到作业列表，请重新授权并确认课程入口");
+            if(source==="smartestu" && Number(data.data?.pageTotal)>1) {
+              const total=Number(data.data.pageTotal);
+              if(!Number.isSafeInteger(total) || total>5) throw error(502,"SmartEstu 作业超过云端单次 5 页上限，请分课程授权");
+              let parameters;try{parameters=JSON.parse(recipe.body);}catch{}
+              if(recipe.method!=="POST" || !parameters || typeof parameters!=="object") throw error(502,"SmartEstu 分页参数缺失，请重新授权");
+              for(let page=1;page<=total;page++) {
+                if(page===Number(data.data.pageNo || parameters.pageNo || 1)) continue;
+                if(++requestCount>5) throw error(502,"SmartEstu 作业超过云端单次 5 页上限，请分课程授权");
+                const more=JSON.parse(await fetchList({...recipe,body:JSON.stringify({...parameters,pageNo:page})},fetcher));
+                const tasks=CampusParsers.parse(source,recipe.url,more,recipe.page_url);
+                if(tasks===null) throw error(502,`SmartEstu 第 ${page} 页未返回作业列表`);
+                parsed.push(...tasks);
+              }
+            }
           }
           for(const task of parsed) tasks.set(task.external_id,task);
         }

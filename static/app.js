@@ -382,7 +382,7 @@ async function checkCloud() {
   try {
     const cloud=await api("/api/cloud");
     $("cloud-run").disabled=!cloud.enabled;$("cloud-revoke").disabled=!cloud.enabled;
-    const lines=[element("p",!cloud.available?"云端服务尚未配置":cloud.enabled?"云端已启用，等待各平台授权与首次成功采集。":"尚未启用，教学网站登录授权仍只保留在你的电脑中。")];
+    const lines=[element("p",!cloud.available?"云端服务尚未配置":cloud.enabled?"云端定时器已启用，每 15 分钟检查一次。各平台的授权与采集结果见下方。":"尚未启用，教学网站登录授权仍只保留在你的电脑中。")];
     if(cloud.enabled) for(const source of sources) {
       const status=cloud.sources[source.id] || {};
       lines.push(element("p",`${source.name}：${status.error || (status.last_success?`最近成功 ${formatTime(status.last_success)} · ${status.count} 项作业，识别状态 ${status.status_count} 项，更新 ${status.changed} 项`:status.authorized?"已收到授权，等待云端采集":"等待首次授权")}`));

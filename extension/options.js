@@ -59,10 +59,17 @@ $("scan").onclick=async()=>{
   const result=await chrome.runtime.sendMessage({type:"scan"});$("result").textContent=result.error || "已打开专用作业页，请确认已登录并打开作业栏目。";
 };
 chrome.storage.local.get("cloudLastResult").then(data=>{if(data.cloudLastResult)$("cloud-result").textContent=data.cloudLastResult;});
+function showCloudSources(results={}) {
+  $("cloud-sources").replaceChildren(...Object.entries({smartestu:"SmartEstu",ketangpai:"课堂派",chaoxing:"学习通"}).map(([source,label])=>{
+    const row=document.createElement("p");row.textContent=`${label}：${results[source] || "尚未保存授权"}`;return row;
+  }));
+}
+chrome.storage.local.get("cloudSourceResults").then(data=>showCloudSources(data.cloudSourceResults));
+chrome.storage.onChanged?.addListener((changes,area)=>{if(area==="local" && changes.cloudSourceResults)showCloudSources(changes.cloudSourceResults.newValue);});
 $("cloud-authorize").onclick=async()=>{
   if(!$("cloud-consent").checked){$("cloud-result").textContent="请先阅读并勾选云端登录授权说明。";return;}
   try {
-    const allowed=await chrome.permissions.request({permissions:["cookies"],origins:["https://openapiv5.ketangpai.com/*"]});
+    const allowed=await chrome.permissions.request({permissions:["cookies"],origins:["https://openapiv5.ketangpai.com/*","https://chaoxing.com/*","https://ketangpai.com/*"]});
     if(!allowed)throw new Error("未获得登录授权读取权限，云端采集未启用。");
     $("cloud-authorize").disabled=true;
     const result=await chrome.runtime.sendMessage({type:"cloud-authorize"});
