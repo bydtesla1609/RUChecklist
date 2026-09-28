@@ -205,7 +205,7 @@ async function route(request, env) {
   const url=new URL(request.url), path=url.pathname, method=request.method, db=env.DB;
   if(!path.startsWith("/api/")) {
     if(method!=="GET" && method!=="HEAD") fail(405,"不支持此操作");
-    if(path!=="/" && !["/static/app.js","/static/style.css","/static/icon.svg"].includes(path)) fail(404,"页面不存在");
+    if(path!=="/" && !["/static/app.js","/static/style.css","/static/icon.svg","/extension.zip"].includes(path)) fail(404,"页面不存在");
     const assetURL=new URL(request.url); assetURL.pathname=path.replace(/^\/static\//,"/");
     return env.ASSETS.fetch(new Request(assetURL,request));
   }

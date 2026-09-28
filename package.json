@@ -1,6 +1,6 @@
 {
-  "name": "campus-task-board",
-  "version": "2.3.0",
+  "name": "ruchecklist",
+  "version": "2.4.0",
   "private": true,
   "type": "module",
   "engines": {

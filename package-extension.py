@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
+from shutil import copyfile
 
 root = Path(__file__).resolve().parent
 source = root / "extension"
@@ -13,4 +14,5 @@ with ZipFile(root / "edge-homework-import.zip", "w", ZIP_DEFLATED) as archive:
 with ZipFile(root / "edge-homework-import.zip") as archive:
     assert archive.testzip() is None
     assert all(archive.read("extension/" + path.name) == path.read_bytes() for path in files)
+copyfile(root / "edge-homework-import.zip", root / "static" / "extension.zip")
 print(f"Extension {version}: {len(files)} files packaged and verified.")

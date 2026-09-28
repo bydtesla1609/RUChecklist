@@ -5,8 +5,9 @@ const STATES = {todo: "待开始", doing: "进行中", done: "已完成"};
 let tasks = [], sources = [], categoryFilter = "全部", editing = null, deleting = null;
 let refreshSequence = 0, lastPayload = "", toastTimer, taskCategory = "作业", draftTodos = [];
 let draftAttachments = [], uploading = false;
-let collectorState=null;
+let collectorState=null, cloudState=null, syncing=false;
 let archiveCategory="全部", archiveItems=[], archiveTotal=0, archiveSequence=0;
+let selectedDay = localInput(new Date()).slice(0,10), calendarMonth = selectedDay.slice(0,7);
 
 function element(tag, text, className) {
   const node = document.createElement(tag);
@@ -20,9 +21,9 @@ function notice(message) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => $("toast").hidden = true, 4000);
 }
-async function api(path, method = "GET", payload) {
+async function api(path, method = "GET", payload, timeout = 15000) {
   const response = await fetch(path, {method, cache: "no-store", headers: {"Content-Type": "application/json"},
-    ...(payload !== undefined ? {body: JSON.stringify(payload)} : {}), signal: AbortSignal.timeout(15000)});
+    ...(payload !== undefined ? {body: JSON.stringify(payload)} : {}), signal: AbortSignal.timeout(timeout)});
   let data;
   try { data = await response.json(); } catch { throw new Error("服务器暂时不可用，请稍后重试"); }
   if (!response.ok) {
@@ -37,7 +38,7 @@ function showLogin() {
   document.querySelectorAll("dialog[open]").forEach(dialog => dialog.close());
   tasks = []; sources = []; archiveItems=[]; lastPayload = "";
   $("archive-list").replaceChildren(); $("archive-detail").replaceChildren();
-  $("board").replaceChildren(); $("sources-list").replaceChildren(); $("pair-code").value = "";
+  $("board").replaceChildren(); $("sources-list").replaceChildren(); collectorState=null; cloudState=null;
 }
 function formatTime(value, includeYear = false) {
   if (!value) return "待补充时间";
@@ -205,7 +206,7 @@ function renderNavigation() {
   $("categories").replaceChildren(...["全部", ...CATEGORIES].map(category => {
     const button = element("button", null, "nav-button" + (categoryFilter === category ? " active" : ""));
     button.setAttribute("aria-pressed", String(categoryFilter === category));
-    button.append(element("span", "", `category-mark cat-${CATEGORIES.indexOf(category)}`), element("span", category === "全部" ? "全部任务" : category),
+    button.append(element("span", "", `category-mark cat-${CATEGORIES.indexOf(category)}`), element("span", category === "全部" ? "日历看板" : category),
       element("span", String(tasks.filter(t => t.status !== "done" && (category === "全部" || t.category === category)).length), "count"));
     button.onclick = () => { if (hasDraft()) { notice("请先保存或取消正在编辑的待办事项"); return; } categoryFilter = category; closeAddMenu(); render(); };
     return button;
@@ -213,6 +214,7 @@ function renderNavigation() {
 }
 function card(task) {
   const article = element("article", null, "task");
+  article.dataset.taskId = task.id;
   const meta = element("div", null, "task-meta");
   meta.append(element("span", task.category, `badge cat-${CATEGORIES.indexOf(task.category)}`),
     element("span", task.source ? sources.find(s => s.id === task.source)?.name || task.source : "手动添加", "source-label"));
@@ -227,7 +229,27 @@ function card(task) {
   if (task.category === "作业") time.append(element("p", formatTime(completedHomework ? task.completed_at : task.due_at, true)));
   else time.append(element("p", formatTime(task.starts_at)), element("p", `至 ${formatTime(task.ends_at, true)}`));
   const footer = element("div", null, "task-footer");
-  footer.append(element("span", STATES[task.status], "task-status"));
+  const status=element("select",null,"task-status");
+  status.setAttribute("aria-label",`任务状态：${task.title}`);
+  for(const [value,label] of Object.entries(STATES)) { const option=element("option",label);option.value=value;status.append(option); }
+  status.value=task.status;
+  status.onchange=async()=>{
+    if(hasDraft()) {status.value=task.status;notice("请先保存或取消正在编辑的待办事项");return;}
+    article.dataset.busy="true";
+    article.querySelectorAll("button,input,select").forEach(node=>node.disabled=true);
+    try {
+      const updated=await api(`/api/tasks/${task.id}`,"PATCH",{status:status.value,revision:task.revision});
+      tasks=tasks.map(value=>value.id===updated.id?updated:value);lastPayload="";
+      task=current=updated;
+      notice(`已设为${STATES[updated.status]}`);
+    } catch(error) {notice(error.message);}
+    finally {
+      delete article.dataset.busy;status.value=task.status;
+      article.querySelectorAll("button,input,select").forEach(node=>node.disabled=false);
+      if(!hasDraft()) render();await refresh();
+    }
+  };
+  footer.append(status);
   if (task.source_url) {
     const link = element("a", "查看原作业 ↗");
     link.href = task.source_url; link.target = "_blank"; link.rel = "noopener noreferrer"; footer.append(link);
@@ -261,7 +283,7 @@ function card(task) {
 function render() {
   renderNavigation();
   const visible = tasks.filter(t => categoryFilter === "全部" || categoryFilter === t.category);
-  $("view-title").textContent = categoryFilter === "全部" ? "全部任务" : categoryFilter;
+  $("view-title").textContent = categoryFilter === "全部" ? "日历看板" : categoryFilter;
   $("add-task").textContent = categoryFilter === "全部" ? "＋ 添加任务" : `＋ 添加${categoryFilter}`;
   const open = visible.filter(t => t.status !== "done");
   $("count-open").textContent = open.length;
@@ -269,6 +291,9 @@ function render() {
   const current = Date.now();
   $("count-soon").textContent = open.filter(t => deadline(t) && new Date(deadline(t)).getTime() >= current && new Date(deadline(t)).getTime() <= current + 7 * 86400000).length;
   $("count-overdue").textContent = open.filter(t => deadline(t) && new Date(deadline(t)).getTime() < current).length;
+  $("board").classList.toggle("calendar-board",categoryFilter==="全部");
+  $("board-caption").hidden=categoryFilter==="全部";
+  if(categoryFilter==="全部") {renderCalendar();renderSources();return;}
   $("board").replaceChildren(...Object.entries(STATES).map(([state, label]) => {
     const column = element("section", null, `column ${state}`);
     const matching = visible.filter(t => t.status === state).sort((a,b) => state==="done"
@@ -288,6 +313,73 @@ function render() {
     return column;
   }));
   renderSources();
+}
+function calendarDates(task) {
+  if(task.category==="作业") {
+    const day=localInput(task.status==="done"?task.completed_at:task.due_at).slice(0,10);
+    return [day,day];
+  }
+  return [localInput(task.starts_at || task.ends_at).slice(0,10),localInput(task.ends_at || task.starts_at).slice(0,10)];
+}
+function onCalendarDay(task,day) {
+  const [start,end]=calendarDates(task);
+  return day ? !!start && start<=day && day<=end : !start;
+}
+function calendarSelect(day) {
+  if(hasDraft()) {notice("请先保存或取消正在编辑的待办事项");return;}
+  selectedDay=day;if(day)calendarMonth=day.slice(0,7);renderCalendar();
+}
+function renderCalendar() {
+  const root=$("board"), calendar=element("section",null,"calendar"),toolbar=element("div",null,"calendar-toolbar");
+  const [year,month]=calendarMonth.split("-").map(Number);
+  const previous=element("button","‹","secondary"),next=element("button","›","secondary"),today=element("button","今天","secondary");
+  previous.setAttribute("aria-label","上个月");next.setAttribute("aria-label","下个月");
+  function moveMonth(offset) {
+    if(hasDraft()) {notice("请先保存或取消正在编辑的待办事项");return;}
+    calendarMonth=new Date(Date.UTC(year,month-1+offset,1)).toISOString().slice(0,7);
+    selectedDay=`${calendarMonth}-01`;renderCalendar();
+    $("board").querySelector(offset<0?'[aria-label="上个月"]':'[aria-label="下个月"]').focus();
+  }
+  previous.onclick=()=>moveMonth(-1);next.onclick=()=>moveMonth(1);today.onclick=()=>calendarSelect(localInput(new Date()).slice(0,10));
+  const controls=element("div",null,"calendar-controls");controls.append(previous,today,next);
+  toolbar.append(element("h2",`${year} 年 ${month} 月`),controls);calendar.append(toolbar);
+  const grid=element("div",null,"calendar-grid");grid.setAttribute("aria-label",`${year}年${month}月`);
+  for(const name of ["一","二","三","四","五","六","日"]) grid.append(element("span",name,"calendar-weekday"));
+  const first=new Date(Date.UTC(year,month-1,1)),offset=(first.getUTCDay()+6)%7;
+  const days=new Date(Date.UTC(year,month,0)).getUTCDate(),cells=Math.ceil((offset+days)/7)*7;
+  const todayKey=localInput(new Date()).slice(0,10);
+  for(let i=0;i<cells;i++) {
+    const date=new Date(Date.UTC(year,month-1,1-offset+i)),key=date.toISOString().slice(0,10);
+    const matching=tasks.filter(task=>onCalendarDay(task,key)).sort((a,b)=>(deadline(a)||"9999").localeCompare(deadline(b)||"9999") || a.id.localeCompare(b.id));
+    const day=element("button",null,"calendar-day"+(key.slice(0,7)!==calendarMonth?" outside":"")+(key===selectedDay?" selected":""));
+    day.dataset.date=key;day.setAttribute("aria-label",`${key}，${matching.length} 项任务`);
+    day.setAttribute("aria-pressed",String(key===selectedDay));day.setAttribute("aria-controls","day-list");
+    if(key===todayKey) day.setAttribute("aria-current","date");
+    day.append(element("span",String(date.getUTCDate()),"day-number"));
+    for(const task of matching.slice(0,2)) {
+      const title=element("span",task.title,`day-task cat-${CATEGORIES.indexOf(task.category)}`+(task.status==="done"?" is-done":""));title.title=task.title;day.append(title);
+    }
+    if(matching.length>2)day.append(element("span",`+${matching.length-2} 项`,"day-more"));
+    day.onclick=()=>{
+      calendarSelect(key);$("board").querySelector(`[data-date="${key}"]`)?.focus({preventScroll:true});
+      if(selectedDay===key) $("board").querySelector(".day-agenda").scrollIntoView({behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"instant":"smooth",block:"start"});
+    };
+    day.onkeydown=event=>{
+      const delta={ArrowLeft:-1,ArrowRight:1,ArrowUp:-7,ArrowDown:7}[event.key];if(!delta)return;
+      event.preventDefault();const target=new Date(date.getTime()+delta*86400000).toISOString().slice(0,10);calendarSelect(target);$("board").querySelector(`[data-date="${target}"]`)?.focus();
+    };
+    grid.append(day);
+  }
+  calendar.append(grid);
+  const undated=tasks.filter(task=>onCalendarDay(task,""));
+  if(undated.length) {const button=element("button",`未定日期 · ${undated.length} 项`,"undated-button secondary");button.setAttribute("aria-pressed",String(selectedDay===""));button.onclick=()=>calendarSelect("");calendar.append(button);}
+  const agenda=element("section",null,"day-agenda"),list=element("div",null,"day-list");list.id="day-list";
+  const matching=tasks.filter(task=>onCalendarDay(task,selectedDay)).sort((a,b)=>a.status==="done" && b.status==="done"
+    ? (b.completed_at||b.updated_at).localeCompare(a.completed_at||a.updated_at)
+    : (a.status==="done")-(b.status==="done") || (deadline(a)||"9999").localeCompare(deadline(b)||"9999"));
+  agenda.append(element("h2",`${selectedDay ? `${Number(selectedDay.slice(5,7))} 月 ${Number(selectedDay.slice(8))} 日` : "未定日期"} · ${matching.length} 项任务`));
+  if(matching.length)list.append(...matching.map(card));else list.append(element("p","这一天没有任务。","day-empty"));
+  agenda.append(list);root.replaceChildren(calendar,agenda);
 }
 function renderArchive() {
   $("archive-categories").replaceChildren(...["全部",...CATEGORIES].map(category=>{
@@ -344,16 +436,26 @@ function collectorCommand(command,extra={},timeout=18000) {
     collectorRequests.set(id,{resolve,reject,timer});window.postMessage({kind:"campus-board-command",id,command,...extra},location.origin);
   });
 }
+function updateSyncControls() {
+  const connected=!!collectorState?.connected;
+  $("collector-controls").hidden=!collectorState || connected;
+  $("collector-install").hidden=!!collectorState;
+  $("browser-settings").hidden=!connected;
+  $("collector-scan").disabled=syncing || !(cloudState?.enabled || (connected && collectorState.enabled));
+  $("collector-scan").textContent=syncing?"正在同步…":"立即同步";
+  $("cloud-authorize").disabled=!connected;
+  $("cloud-revoke").disabled=syncing || !cloudState?.enabled;
+}
 async function checkCollector() {
   try {
     collectorState=await collectorCommand("status",{},1800);
-    $("collector-controls").hidden=false;
-    $("collector-state").textContent=collectorState.connected?`扩展 ${collectorState.version} 已连接 · ${collectorState.enabled?"自动检查已开启":"已暂停"}`:`已检测到扩展 ${collectorState.version}，点击连接即可完成配对。`;
-    $("collector-connect").textContent=collectorState.connected?"重新连接":"连接此看板";
-    $("collector-scan").disabled=!collectorState.connected || !collectorState.enabled;
-    $("collector-enabled").disabled=!collectorState.connected;$("collector-enabled").checked=collectorState.enabled;
-    renderSources();
-  }catch(error){collectorState=null;$("collector-controls").hidden=true;$("collector-state").textContent=error.message;}
+    $("collector-state").textContent=collectorState.connected?`Edge 扩展已连接 · v${collectorState.version}${collectorState.enabled?"":" · 浏览器导入已暂停"}`:"已检测到扩展，点击下方按钮连接。";
+    $("collector-enabled").checked=collectorState.enabled;
+  }catch {
+    collectorState=null;
+    $("collector-state").textContent="此浏览器未连接扩展。手机可直接查看云端同步结果。";
+  }
+  updateSyncControls();renderSources();
 }
 $("collector-connect").onclick=async()=>{
   $("collector-connect").disabled=true;$("source-error").textContent="";
@@ -361,14 +463,16 @@ $("collector-connect").onclick=async()=>{
     await collectorCommand("status",{},1800);
     const {token}=await api("/api/collector-token","POST",{});
     await collectorCommand("pair",{token});await checkCollector();
-    $("collector-state").textContent="已连接。正在打开作业页，读取结果会显示在各平台下方…";
-    await collectorCommand("scan");
+    await collectorCommand("scan");notice("已连接，正在读取作业。请确认三个网站已登录。");
   }catch(error){$("source-error").textContent=error.message;}finally{$("collector-connect").disabled=false;}
 };
 $("collector-scan").onclick=async()=>{
-  $("collector-scan").disabled=true;$("source-error").textContent="";
-  try{await collectorCommand("scan");$("collector-state").textContent="已开始检查，请稍候。登录失效或无法识别时会在对应平台下方提示。";}
-  catch(error){$("source-error").textContent=error.message;}finally{$("collector-scan").disabled=false;}
+  syncing=true;updateSyncControls();$("source-error").textContent="";
+  try {
+    if(cloudState?.enabled) {await api("/api/cloud/run","POST",{},60000);await refresh();await checkCloud();}
+    else {await collectorCommand("scan");notice("已开始读取作业，结果会显示在下方。");}
+  }catch(error){$("source-error").textContent=error.message;}
+  finally{syncing=false;updateSyncControls();}
 };
 $("collector-enabled").onchange=async()=>{
   const enabled=$("collector-enabled").checked;$("collector-enabled").disabled=true;
@@ -376,41 +480,32 @@ $("collector-enabled").onchange=async()=>{
   catch(error){$("source-error").textContent=error.message;$("collector-enabled").checked=!enabled;}
   finally{$("collector-enabled").disabled=false;}
 };
-$("collector-options").onclick=()=>collectorCommand("options").catch(error=>{$("source-error").textContent=error.message;});
+$("collector-options").onclick=$("cloud-authorize").onclick=()=>collectorCommand("options").catch(error=>{$("source-error").textContent=error.message;});
 async function checkCloud() {
   try {
-    const cloud=await api("/api/cloud");
-    $("cloud-run").disabled=!cloud.enabled;$("cloud-revoke").disabled=!cloud.enabled;
-    const lines=[element("p",!cloud.available?"云端服务尚未配置":cloud.enabled?"云端定时器已启用，每 15 分钟检查一次。各平台的授权与采集结果见下方。":"尚未启用，教学网站登录授权仍只保留在你的电脑中。")];
-    if(cloud.enabled) for(const source of sources) {
-      const status=cloud.sources[source.id] || {};
-      lines.push(element("p",`${source.name}：${status.error || (status.last_success?`最近成功 ${formatTime(status.last_success)} · ${status.count} 项作业，识别状态 ${status.status_count} 项，更新 ${status.changed} 项`:status.authorized?"已收到授权，等待云端采集":"等待首次授权")}`));
-    }
-    $("cloud-status").replaceChildren(...lines);
+    cloudState=await api("/api/cloud");
+    $("cloud-status").textContent=cloudState.enabled?"云端自动同步已开启 · 每 15 分钟":"云端未启用 · 使用电脑扩展导入";
+    updateSyncControls();renderSources();
   }catch(error){$("cloud-status").textContent=error.message;}
 }
-$("cloud-authorize").onclick=()=>collectorCommand("options").catch(error=>{$("source-error").textContent=error.message;});
-$("cloud-run").onclick=async()=>{
-  $("cloud-run").disabled=true;$("cloud-status").textContent="云端正在检查作业，请稍候…";
-  try{await api("/api/cloud/run","POST",{});await refresh();}catch(error){$("source-error").textContent=error.message;}finally{await checkCloud();}
-};
 $("cloud-revoke").onclick=async()=>{
   if(!confirm("关闭云端采集并删除服务器保存的教学网站登录授权？已导入的任务会保留。"))return;
   try{await api("/api/cloud","DELETE");await checkCloud();}catch(error){$("source-error").textContent=error.message;}
 };
 function renderSources() {
-  $("sources-list").replaceChildren(...sources.map(source => {
-    const row = element("div", null, "source-row"), header = element("div");
-    const link = element("a", `${source.name} ↗`); link.href = source.url; link.target = "_blank"; link.rel = "noopener noreferrer";
-    const fresh = source.last_seen && Date.now() - new Date(source.last_seen).getTime() < 30 * 60000;
-    const missingStates=source.imported_count>0 && source.status_count<source.imported_count;
-    header.append(link, element("span", source.error ? "需处理" : missingStates ? "状态未同步完整" : fresh ? "已接收" : source.last_seen ? "等待新数据" : "待连接", "state" + (fresh && !source.error && !missingStates ? " connected" : "")));
-    row.append(header, element("p", source.error || (source.last_seen ? `上次接收 ${formatTime(source.last_seen)} · ${source.task_count} 项作业` : "尚未收到此网站的作业数据")));
-    if(source.imported_count) row.append(element("p",`已识别完成状态 ${source.status_count} / ${source.imported_count} 项${missingStates?"。请确认扩展已更新，并刷新教学网站的作业列表后同步。":""}`,"source-diagnostic"));
+  $("sources-list").replaceChildren(...sources.map(source=>{
+    const row=element("div",null,"source-row"),header=element("div");
+    const cloud=cloudState?.enabled?cloudState.sources?.[source.id]:null;
     const local=collectorState?.sourceResults?.[source.id];
-    if(local?.time && (!source.last_seen || Date.parse(local.time)>=Date.parse(source.last_seen)-1000)) {
-      row.append(element("p",local.error || `本机上次检查 · 读取 ${local.count} 项，更新 ${local.changed} 项${local.missingDates?` · ${local.missingDates} 项未提供完整截止时间`:""}`,"source-diagnostic"));
-    }
+    const seen=cloud?.last_success || source.last_seen;
+    const fresh=seen && Date.now()-Date.parse(seen)<30*60000;
+    const error=cloudState?.enabled ? cloud?.error : (local?.error && (!seen || Date.parse(local.time)>Date.parse(seen)) ? local.error:source.error);
+    const incomplete=cloud?.last_success ? cloud.status_count<cloud.count : source.imported_count>source.status_count;
+    const label=error?"需处理":incomplete?"状态不完整":fresh?"已同步":seen?"等待更新":"待连接";
+    header.append(externalLink(`${source.name} ↗`,source.url),element("span",label,"state"+(fresh && !error && !incomplete?" connected":"")));
+    row.append(header);
+    const total=cloud?.last_success?cloud.count:source.task_count;
+    row.append(element("p",error || (seen?`${formatTime(seen)} · ${total} 项作业${incomplete?" · 部分完成状态未识别":""}`:cloud?.authorized?"授权已保存，等待同步":"请连接扩展并登录此网站")));
     return row;
   }));
 }
@@ -423,12 +518,10 @@ async function refresh() {
     $("login").hidden = true; $("workspace").hidden = false;
     tasks = data.tasks; sources = data.sources;
     if($("sources-dialog").open) {if(collectorState)checkCollector();checkCloud();}
-    $("storage-state").textContent = data.storage ? `附件空间：${fileSize(data.storage.used)} / ${fileSize(data.storage.limit)}` : "";
     const signature = JSON.stringify([tasks, sources, categoryFilter, Math.floor(Date.now()/60000)]);
     if (signature !== lastPayload) { render(); lastPayload = signature; }
-    $("sync-state").textContent = "已同步 ↻"; $("sync-state").classList.remove("failed"); $("load-error").textContent = "";
+    $("load-error").textContent = "";
   } catch (error) {
-    $("sync-state").textContent = "连接中断 · 重试"; $("sync-state").classList.add("failed");
     $("load-error").textContent = `无法同步：${error.message}。页面上的内容可能不是最新的。`;
   }
 }
@@ -472,8 +565,7 @@ $("add-menu").replaceChildren(...CATEGORIES.map(category => {
 document.addEventListener("click", event => { if (!event.target.closest(".add-control") && !event.target.closest(".empty")) closeAddMenu(); });
 document.addEventListener("keydown", event => { if (event.key === "Escape" && !$("add-menu").hidden) { closeAddMenu(); $("add-task").focus(); } });
 $("add-task").onclick = startAdd;
-$("sync-state").onclick = refresh;
-$("sources-button").onclick = () => { renderSources(); $("sources-dialog").showModal(); checkCollector(); checkCloud(); };
+$("sources-button").onclick = () => { renderSources(); $("sources-dialog").showModal(); $("source-error").textContent=""; checkCollector(); checkCloud(); };
 document.querySelectorAll(".close-dialog").forEach(button => button.onclick = () => button.closest("dialog").close());
 $("task-form").onsubmit = async event => {
   event.preventDefault(); $("save-task").disabled = true; $("task-error").textContent = "";
@@ -504,14 +596,6 @@ $("login-form").onsubmit = async event => {
   finally { button.disabled = false; }
 };
 $("logout").onclick = async () => { try { await api("/api/logout", "POST", {}); showLogin(); } catch(error) { notice(error.message); } };
-$("pair").onclick = async () => {
-  $("pair").disabled = true;
-  try { const data = await api("/api/collector-token", "POST", {}); $("pair-url").value = location.origin; $("pair-code").value = data.token; $("pair-result").hidden = false; }
-  catch (error) { $("source-error").textContent = error.message; }
-  finally { $("pair").disabled = false; }
-};
-$("sources-dialog").addEventListener("close", () => { $("pair-code").value = ""; $("pair-result").hidden = true; });
-$("today").textContent = new Intl.DateTimeFormat("zh-CN", {timeZone:"Asia/Shanghai", year:"numeric", month:"long", day:"numeric", weekday:"long"}).format(new Date());
 document.addEventListener("visibilitychange", () => { if (!document.hidden && !$("workspace").hidden) refresh(); });
-setInterval(() => { if (!document.hidden && !$("workspace").hidden && !$("board").contains(document.activeElement)) refresh(); }, 6000);
+setInterval(() => { if (!document.hidden && !$("workspace").hidden && !document.activeElement.matches("#board input, #board select")) refresh(); }, 6000);
 api("/api/session").then(data => data.authenticated ? refresh() : showLogin()).catch(() => { showLogin(); $("login-error").textContent = "服务器暂时无法连接，请刷新重试"; });

@@ -95,13 +95,16 @@ try {
   });
   assert.deepEqual(await mobileCard.locator(".todo-text").allTextContents(), ["整理笔记", "读论文并标注"]);
   assert.equal(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await page.locator("#sync-state").click();
+  await page.evaluate(() => refresh());
   await page.waitForFunction(() => document.querySelector(".todo-text")?.textContent === "整理笔记");
   assert.deepEqual(await card.locator(".todo-text").allTextContents(), ["整理笔记", "读论文并标注"]);
   await card.locator(".task-title").click();
   assert.equal(await page.locator("#task-dialog").isVisible(), false);
   assert.equal(await card.locator(".task-title").evaluate(node => node.tagName), "H3");
-  assert.equal(await card.locator("select").count(), 0);
+  assert.equal(await card.locator("select").count(), 1);
+  await saved(page,()=>card.locator(".task-status").selectOption("doing"));
+  await page.waitForFunction(()=>!document.querySelector("article[data-busy]"));
+  assert.equal(await card.locator(".task-status").inputValue(),"doing");
   assert.deepEqual(await card.locator(".task-actions button").allTextContents(), ["编辑", "删除"]);
   await card.locator(".edit-task").click();
   assert.equal(await page.locator("#task-location").inputValue(), "图书馆 · 三层");
@@ -112,7 +115,7 @@ try {
   await card.locator(".todo-text").filter({hasText: "写一页阅读小结"}).waitFor();
   // A second device changing the same task must not erase a local draft.
   await card.locator(".todo-text").first().click(); await card.locator(".todo-edit").fill("未保存的本地草稿");
-  await phone.locator("#sync-state").click();
+  await phone.evaluate(() => refresh());
   await mobileCard.locator(".todo-text").filter({hasText: "写一页阅读小结"}).waitFor();
   await mobileCard.locator(".edit-task").click(); await phone.locator("#task-location").fill("明德楼 · 302");
   await phone.locator("#save-task").click(); await phone.locator("#task-dialog").waitFor({state: "hidden"});
@@ -134,16 +137,18 @@ try {
   });
   await page.evaluate(async()=>fetch("/api/tasks",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:"完成较晚的作业",due_at:"2026-09-01T00:00:00Z",status:"done"})}));
   database.prepare("UPDATE tasks SET completed_at=? WHERE title=?").run(new Date(Date.now()-3600000).toISOString(),"校园夜跑计划");
-  await page.locator("#sync-state").click();await category(page,"全部任务").click();
+  await page.evaluate(async()=>fetch("/api/tasks",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:"完成较早的作业",due_at:"2026-09-01T00:00:00Z",status:"done"})}));
+  database.prepare("UPDATE tasks SET completed_at=? WHERE title=?").run(new Date(Date.now()-3600000).toISOString(),"完成较早的作业");
+  await page.evaluate(() => refresh());await category(page,"作业").click();
   await page.locator(".done .task-title").filter({hasText:"完成较晚的作业"}).waitFor();
-  assert.deepEqual(await page.locator(".done .task-title").allTextContents(),["完成较晚的作业","校园夜跑计划"]);
+  assert.deepEqual(await page.locator(".done .task-title").allTextContents(),["完成较晚的作业","完成较早的作业"]);
   assert.equal(await page.locator(".done .task").first().locator(".time-label").textContent(),"完成时间");
   const archiveId=await page.evaluate(async()=>{
     const response=await fetch("/api/tasks",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({category:"作业",title:"归档检查 · 已提交报告",location:"实验室",due_at:"2026-09-01T12:00:00Z",status:"done",todos:[{id:"archive-todo",text:"最终检查",done:true}],links:[{label:"参考文档",url:"https://example.com/archive"}]})});
     return (await response.json()).id;
   });
   database.prepare("UPDATE tasks SET completed_at=? WHERE id=?").run(new Date(Date.now()-8*86400000).toISOString(),archiveId);
-  await page.locator("#sync-state").click();await page.locator("#archive-button").click();
+  await page.evaluate(() => refresh());await page.locator("#archive-button").click();
   await page.getByRole("button",{name:"查看归档：归档检查 · 已提交报告",exact:true}).click();
   await page.locator("#archive-detail-dialog").waitFor({state:"visible"});
   assert.ok(await page.locator("#archive-detail").getByText("地点 · 实验室",{exact:true}).isVisible());
@@ -157,15 +162,60 @@ try {
   await page.getByRole("button",{name:"删除归档：归档检查 · 已提交报告",exact:true}).click();
   await page.locator("#confirm-delete").click();await page.locator("#archive-list .archive-empty").waitFor();
   await page.getByRole("button",{name:"关闭归档",exact:true}).click();
-  await page.locator("#sync-state").click(); await category(page, "全部任务").click();
-  await page.locator("article.task").filter({hasText: "数据结构"}).waitFor();
+  await page.evaluate(async()=> {
+    const response=await fetch("/api/tasks",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({category:"作业",title:"很长的任务标题".repeat(12),due_at:"2026-10-01T16:15:00Z"})});
+    if(!response.ok)throw new Error("Calendar fixture failed");
+    await fetch("/api/tasks",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({category:"作业",title:"待补充日期的导入任务",due_at:"2026-10-01T00:00:00Z"})});
+  });
+  database.prepare("UPDATE tasks SET due_at=NULL WHERE title=?").run("待补充日期的导入任务");
+  await page.evaluate(() => refresh());await category(page,"日历看板").click();
+  await page.evaluate(()=>{calendarMonth="2026-10";selectedDay="2026-10-02";renderCalendar();});
+  assert.equal(await page.title(),"RUChecklist");
+  assert.equal(await page.locator(".topbar,.focus-note,#sync-state").count(),0);
+  assert.equal(await page.locator("#board [data-date='2026-10-02'] .day-task").count(),2);
+  assert.equal(await page.locator("#board [data-date='2026-10-02'] .day-more").textContent(),"+1 项");
+  assert.equal(await page.locator(".day-list .task").count(),3);
+  // UTC 16:15 belongs to the next Beijing date; ranges include both ends.
+  assert.equal(await page.locator("#board [data-date='2026-10-01'] .day-task").count(),1);
+  await page.locator("[data-date='2026-10-08']").click();
+  assert.equal(await page.locator("[data-date='2026-10-08']").getAttribute("aria-pressed"),"true");
+  assert.match(await page.locator(".day-list .task-title").textContent(),/课程研究/);
+  await page.locator("[data-date='2026-10-09']").click();assert.equal(await page.locator(".day-empty").count(),1);
+  await page.getByRole("button",{name:"下个月",exact:true}).click();assert.match(await page.locator(".calendar-toolbar h2").textContent(),/11 月/);
+  await page.getByRole("button",{name:"上个月",exact:true}).click();
+  await page.locator("[data-date='2026-10-01']").press("ArrowLeft");assert.match(await page.locator(".calendar-toolbar h2").textContent(),/9 月/);
+  await page.getByRole("button",{name:"下个月",exact:true}).click();
+  await page.locator(".undated-button").click();assert.equal(await page.locator(".day-list .task-title").textContent(),"待补充日期的导入任务");
+  await page.locator("[data-date='2026-10-02']").click();
+  const homework=page.locator(".day-list .task").filter({has:page.locator("h3",{hasText:"数据结构"})});
+  const homeworkId=await homework.getAttribute("data-task-id");
+  await saved(page,()=>homework.locator(".task-status").selectOption("done"));
+  await page.waitForFunction(()=>!document.querySelector("article[data-busy]"));
+  let completed=database.prepare("SELECT completed_at,due_at,status FROM tasks WHERE id=?").get(homeworkId);
+  assert.equal(completed.status,"done");assert.ok(completed.completed_at);assert.equal(completed.due_at,"2026-10-02T15:59:00.000Z");
+  await page.getByRole("button",{name:"今天",exact:true}).click();
+  const completedCard=page.locator(`article[data-task-id="${homeworkId}"]`);await completedCard.waitFor();
+  await saved(page,()=>completedCard.locator(".task-status").selectOption("todo"));
+  await page.waitForFunction(()=>!document.querySelector("article[data-busy]"));
+  assert.equal(database.prepare("SELECT completed_at FROM tasks WHERE id=?").get(homeworkId).completed_at,null);
+  await page.evaluate(()=>{calendarMonth="2026-10";selectedDay="2026-10-02";renderCalendar();});
+  // A failed direct status update preserves the task and shows its actual state.
+  await page.route(`**/api/tasks/${homeworkId}`,route=>route.fulfill({status:409,contentType:"application/json",body:JSON.stringify({error:"任务已在其他设备修改，请刷新后重试"})}),{times:1});
+  await homework.locator(".task-status").selectOption("doing");
+  await page.waitForFunction(()=>!document.querySelector("article[data-busy]"));
+  assert.equal(await homework.locator(".task-status").inputValue(),"todo");
+  assert.match(await page.locator("#toast").textContent(),/其他设备/);
   await mkdir("data/screenshots", {recursive: true});
   await page.screenshot({path:"data/screenshots/desktop.png",fullPage:true});
-  await phone.locator("#sync-state").click(); await category(phone, "全部任务").click();
-  await phone.locator("article.task").filter({hasText: "数据结构"}).waitFor(); await phone.evaluate(() => scrollTo(0,0));
+  await phone.evaluate(() => refresh()); await category(phone, "日历看板").click();
+  await phone.evaluate(()=>{calendarMonth="2026-10";selectedDay="2026-10-02";renderCalendar();scrollTo(0,0);});
   await phone.screenshot({path:"data/screenshots/mobile.png",fullPage:true});
   await phone.screenshot({path:"data/screenshots/mobile-top.png"});
-  for(const width of [320,375,430,768]) { await phone.setViewportSize({width,height:844});assert.equal(await phone.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`overflow at ${width}px`); }
+  for(const width of [320,375,430,768]) {
+    await phone.setViewportSize({width,height:844});assert.equal(await phone.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`overflow at ${width}px`);
+    assert.equal(await phone.locator(".day-task").first().evaluate(node=>getComputedStyle(node).textOverflow),"ellipsis");
+  }
+  const zip=await desktop.request.get(origin+"/extension.zip");assert.equal(zip.status(),200);assert.equal((await zip.body()).subarray(0,2).toString(),"PK");
   await page.evaluate(()=>{
     let enabled=true;window.testScanCount=0;
     window.addEventListener("message",event=>{
@@ -176,17 +226,25 @@ try {
       window.postMessage({kind:"campus-board-reply",id,result:command==="status"?{version:"1.2.0",connected:true,enabled,sourceResults:{}}:{ok:true}},location.origin);
     });
   });
-  await page.locator("#sources-button").click();await page.locator("#collector-controls").waitFor({state:"visible"});
+  await page.locator("#sources-button").click();await page.waitForFunction(()=>document.getElementById("collector-state").textContent.includes("已连接"));
   await page.locator("#collector-scan").click();await page.waitForFunction(()=>window.testScanCount===1);
-  await page.locator("#collector-enabled").uncheck();await page.waitForFunction(()=>document.getElementById("collector-state").textContent.includes("已暂停"));
+  await page.locator("#sync-settings summary").click();await page.locator("#collector-enabled").uncheck();await page.waitForFunction(()=>document.getElementById("collector-state").textContent.includes("已暂停"));
   assert.equal(await page.locator("#collector-scan").isDisabled(),true);
+  await page.route("**/api/cloud",route=>route.fulfill({json:{available:true,enabled:true,sources:{smartestu:{authorized:true,last_success:new Date().toISOString(),count:3,status_count:3,changed:0}}}}));
+  let cloudRuns=0;
+  await page.route("**/api/cloud/run",route=>{cloudRuns++;return route.fulfill({json:{ok:true}});});
+  await page.evaluate(()=>checkCloud());assert.equal(await page.locator("#collector-scan").isDisabled(),false);
+  await page.locator("#collector-scan").click();await page.waitForFunction(()=>!syncing);
+  assert.equal(cloudRuns,1);assert.equal(await page.evaluate(()=>window.testScanCount),1);
+  assert.match(await page.locator("#sources-list").textContent(),/已同步/);
+  await page.locator("#sync-settings summary").click();
   await page.screenshot({path:"data/screenshots/sources.png"});
   await page.locator("#sources-dialog .close-dialog").click();
   await category(page, "活动").click(); await page.locator("#add-task").click();
   assert.equal(await page.locator("#dialog-title").textContent(), "添加活动");
   await page.screenshot({path:"data/screenshots/form.png"});
   assert.deepEqual(errors, []);
-  console.log("PASS: completion order, archive filter/detail/delete, simulated board-to-extension controls, category inheritance, required title, location, detail/card todo CRUD, mouse/touch/keyboard sorting, two browser sessions, conflict draft retention, 320–768px layouts, SVG alignment, attachment upload/preview/download and shared links. Screenshots: data/screenshots/ (synthetic data only).");
+  console.log("PASS: Beijing monthly calendar, date selection, month/keyboard navigation, ranges, undated tasks, direct status and conflict handling, downloadable extension, unified cloud/local sync, completion order, archive filter/detail/delete, simulated board-to-extension controls, category inheritance, required title, location, detail/card todo CRUD, mouse/touch/keyboard sorting, two browser sessions, conflict draft retention, 320–768px layouts, SVG alignment, attachment upload/preview/download and shared links. Screenshots: data/screenshots/ (synthetic data only).");
 } finally {
   await browser?.close(); server.closeAllConnections(); await new Promise(resolve=>server.close(resolve)); database.close();
   await rm(directory, {recursive:true,force:true});

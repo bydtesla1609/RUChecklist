@@ -53,8 +53,8 @@ export async function createEnvironment(dataDir, password) {
   const env={DB:sqliteBinding(database),BOARD_PASSWORD_HASH:await digest(key),ASSETS:{async fetch(request){
     const pathname=new URL(request.url).pathname;
     const name=pathname==="/" ? "index.html" : pathname.slice(1);
-    if(!["index.html","app.js","style.css","icon.svg"].includes(name)) return new Response("Not found",{status:404});
-    const mime={html:"text/html; charset=utf-8",js:"text/javascript; charset=utf-8",css:"text/css; charset=utf-8",svg:"image/svg+xml"};
+    if(!["index.html","app.js","style.css","icon.svg","extension.zip"].includes(name)) return new Response("Not found",{status:404});
+    const mime={html:"text/html; charset=utf-8",js:"text/javascript; charset=utf-8",css:"text/css; charset=utf-8",svg:"image/svg+xml",zip:"application/zip"};
     return new Response(await readFile(join(root,"static",name)),{headers:{"Content-Type":mime[name.split(".").pop()]}});
   }}};
   return {env,database};
@@ -70,5 +70,5 @@ if(process.argv[1] && fileURLToPath(import.meta.url)===resolve(process.argv[1]))
     } catch {res.writeHead(500);res.end("Request failed");}
   });
   const port=Number(process.env.PORT || 8765), host=process.env.BOARD_HOST || "127.0.0.1";
-  server.listen(port,host,()=>console.log(`Campus Board: http://${host}:${port}\nAccess code is stored in data/access-code.txt`));
+  server.listen(port,host,()=>console.log(`RUChecklist: http://${host}:${port}\nAccess code is stored in data/access-code.txt`));
 }

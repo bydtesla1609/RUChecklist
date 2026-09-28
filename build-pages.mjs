@@ -1,10 +1,13 @@
 import {mkdir,copyFile,writeFile} from "node:fs/promises";
+import {execFileSync} from "node:child_process";
+import {fileURLToPath} from "node:url";
+execFileSync("python",["-X","utf8",fileURLToPath(new URL("./package-extension.py",import.meta.url))],{stdio:"inherit"});
 const output=new URL("./dist/pages/",import.meta.url);
 await mkdir(output,{recursive:true});
-for(const name of ["index.html","app.js","style.css","icon.svg"]) await copyFile(new URL(`./static/${name}`,import.meta.url),new URL(name,output));
+for(const name of ["index.html","app.js","style.css","icon.svg","extension.zip"]) await copyFile(new URL(`./static/${name}`,import.meta.url),new URL(name,output));
 await copyFile(new URL("./worker.mjs",import.meta.url),new URL("_worker.js",output));
 await copyFile(new URL("./cloud.mjs",import.meta.url),new URL("cloud.mjs",output));
 await mkdir(new URL("extension/",output),{recursive:true});
 for(const name of ["parsers.js","cloud-routes.js"]) await copyFile(new URL(`./extension/${name}`,import.meta.url),new URL(`extension/${name}`,output));
 await writeFile(new URL("_routes.json",output),JSON.stringify({version:1,include:["/*"],exclude:[]}));
-console.log("Pages package ready: dist/pages (four public assets, one server Worker).");
+console.log("Pages package ready: dist/pages (five public assets, one server Worker).");

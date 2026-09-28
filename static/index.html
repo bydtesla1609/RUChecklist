@@ -4,14 +4,14 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#101225"><meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="description" content="管理作业、科研、竞赛、活动和组织事务的个人任务看板。">
-  <title>大学任务看板</title>
+  <title>RUChecklist</title>
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script>
 </head>
 <body>
 <section id="login" class="login" hidden>
   <form id="login-form" class="login-card">
-    <div class="brand-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M12 1.5C13.8 8.4 15.6 10.2 22.5 12 15.6 13.8 13.8 15.6 12 22.5 10.2 15.6 8.4 13.8 1.5 12 8.4 10.2 10.2 8.4 12 1.5Z"/></svg></div><p class="eyebrow">CAMPUS BOARD</p><h1>你的大学，有序发生。</h1>
+    <div class="brand-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M12 1.5C13.8 8.4 15.6 10.2 22.5 12 15.6 13.8 13.8 15.6 12 22.5 10.2 15.6 8.4 13.8 1.5 12 8.4 10.2 10.2 8.4 12 1.5Z"/></svg></div><p class="eyebrow">RUChecklist</p><h1>你的大学，有序发生。</h1>
     <p class="muted">电脑与手机，使用同一个看板。</p>
     <label for="password">访问密码</label><input id="password" type="password" autocomplete="current-password" required>
     <p id="login-error" class="error" role="alert"></p><button type="submit" class="primary">进入看板 <span aria-hidden="true">→</span></button>
@@ -20,15 +20,14 @@
 </section>
 <div id="workspace" class="workspace" hidden>
   <aside class="sidebar">
-    <a class="brand" href="/" aria-label="大学任务看板首页"><span class="brand-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M12 1.5C13.8 8.4 15.6 10.2 22.5 12 15.6 13.8 13.8 15.6 12 22.5 10.2 15.6 8.4 13.8 1.5 12 8.4 10.2 10.2 8.4 12 1.5Z"/></svg></span><span>大学任务看板<small>CAMPUS BOARD</small></span></a>
+    <a class="brand" href="/" aria-label="RUChecklist首页"><span class="brand-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M12 1.5C13.8 8.4 15.6 10.2 22.5 12 15.6 13.8 13.8 15.6 12 22.5 10.2 15.6 8.4 13.8 1.5 12 8.4 10.2 10.2 8.4 12 1.5Z"/></svg></span><span>RUChecklist<small>学习与生活</small></span></a>
     <p class="nav-heading">我的任务</p><nav id="categories" aria-label="任务分类"></nav>
-    <div class="sidebar-bottom"><div class="focus-note"><span class="eyebrow">ONE THING AT A TIME</span><p>慢慢来，<br>每一步都算数。</p><span class="orbit" aria-hidden="true">✦</span></div><button id="archive-button" class="nav-button" aria-label="归档处">▤ <span>归档处</span></button><button id="sources-button" class="nav-button">↻ <span>作业来源与同步</span></button><button id="logout" class="nav-button">↗ <span>退出登录</span></button></div>
+    <div class="sidebar-bottom"><button id="archive-button" class="nav-button" aria-label="归档处">▤ <span>归档处</span></button><button id="sources-button" class="nav-button">↻ <span>作业来源与同步</span></button><button id="logout" class="nav-button">↗ <span>退出登录</span></button></div>
   </aside>
   <main>
-    <header class="topbar"><div><span class="eyebrow">我的大学 · 任务空间</span><p id="today"></p></div><button id="sync-state" class="sync-state" title="立即刷新" aria-live="polite">正在连接…</button></header>
-    <section class="heading"><div><p class="eyebrow section-kicker">MAKE ROOM FOR WHAT MATTERS</p><h1 id="view-title">全部任务</h1><p class="muted">把精力留给正在做的事。</p></div><div class="add-control"><button id="add-task" class="primary" aria-expanded="false"><span aria-hidden="true">＋</span> 添加任务</button><div id="add-menu" class="add-menu" hidden aria-label="选择任务板块"></div></div></section>
-    <section class="summary" aria-label="任务概况"><div><span>待完成</span><strong id="count-open">0</strong><small>待开始与进行中 · 按截止 / 结束时间从近到远</small><span class="stat-art" aria-hidden="true">◌</span></div><div><span>未来 7 天到期 / 结束</span><strong id="count-soon">0</strong><small>未来 7 天内截止 / 结束 · 时间均为北京时间</small><span class="stat-art" aria-hidden="true">↗</span></div><div><span>已逾期</span><strong id="count-overdue">0</strong><small>已过截止 / 结束时间，且尚未完成</small><span class="stat-art" aria-hidden="true">⌁</span></div><div><span>已完成</span><strong id="count-done">0</strong><small>最近 7 天 · 按完成时间倒序，超过 7 天自动归档</small><span class="stat-art" aria-hidden="true">✓</span></div></section>
-    <div class="board-caption"><h2>任务看板 <span class="caption-en">YOUR FLOW</span></h2></div>
+    <section class="heading"><div><h1 id="view-title">日历看板</h1></div><div class="add-control"><button id="add-task" class="primary" aria-expanded="false"><span aria-hidden="true">＋</span> 添加任务</button><div id="add-menu" class="add-menu" hidden aria-label="选择任务板块"></div></div></section>
+    <section class="summary" aria-label="任务概况"><div><span>待完成</span><strong id="count-open">0</strong><small>按截止 / 结束时间从近到远</small><span class="stat-art" aria-hidden="true">◌</span></div><div><span>未来 7 天到期</span><strong id="count-soon">0</strong><small>按截止 / 结束时间从近到远</small><span class="stat-art" aria-hidden="true">↗</span></div><div><span>已逾期</span><strong id="count-overdue">0</strong><small>已过截止 / 结束时间，且尚未完成</small><span class="stat-art" aria-hidden="true">⌁</span></div><div><span>已完成</span><strong id="count-done">0</strong><small>按完成时间倒序，超过 7 天自动归档</small><span class="stat-art" aria-hidden="true">✓</span></div></section>
+    <div id="board-caption" class="board-caption"><h2>任务看板 <span class="caption-en">YOUR FLOW</span></h2></div>
     <div id="board" class="board" aria-live="polite"></div>
     <p id="load-error" class="error" role="alert"></p>
   </main>
@@ -55,16 +54,17 @@
 </dialog>
 <dialog id="sources-dialog">
   <div class="dialog-heading"><div><p class="eyebrow">CONNECTED SOURCES</p><h2>作业来源与同步</h2></div><button class="icon-button close-dialog" aria-label="关闭">×</button></div>
-  <p class="muted">看板数据保存在服务器。设备打开同一地址后，每 6 秒刷新一次。</p>
+  <div class="source-connection">
+    <p id="collector-state" role="status">正在检查扩展…</p>
+    <div id="collector-install" hidden><a class="secondary extension-download" href="/extension.zip" download="RUChecklist-extension.zip">下载 Edge 扩展</a><p class="hint">在电脑上解压，在 Edge 的扩展管理页开启开发人员模式，加载解压后的 extension 文件夹，然后刷新本页。</p></div>
+    <div id="collector-controls" hidden><button id="collector-connect" class="primary">连接此看板</button></div>
+  </div>
+  <div class="sync-toolbar"><p id="cloud-status" class="muted" role="status">正在检查同步状态…</p><button id="collector-scan" class="primary" disabled>立即同步</button></div>
   <div id="sources-list"></div>
-  <div class="connection-note"><strong>云端采集 · 电脑关机也能运行</strong><p>每 15 分钟检查已授权的作业列表，仅更新有变化的任务。首次需在 Edge 扩展中明确授权；登录过期时需重新授权。</p><div id="cloud-status" role="status">正在检查云端配置…</div><div class="collector-actions"><button id="cloud-authorize" class="secondary">打开云端授权设置</button><button id="cloud-run" class="secondary" disabled>云端立即同步</button><button id="cloud-revoke" class="text-button" disabled>关闭并删除云端授权</button></div></div>
-  <p id="storage-state" class="hint"></p>
-  <div class="connection-note"><strong>Edge 作业导入</strong><p id="collector-state" role="status">正在检查此浏览器的扩展…</p>
-    <div id="collector-controls" hidden><div class="collector-actions"><button id="collector-connect" class="primary">连接此看板</button><button id="collector-scan" class="secondary">立即同步</button><button id="collector-options" class="text-button">扩展设置</button></div><label class="collector-toggle"><input id="collector-enabled" type="checkbox">每 15 分钟自动检查</label></div>
-    <p>扩展在已登录的 Edge 中读取作业标题、时间和完成状态，只有变化的任务会更新。手机可查看同步结果；电脑休眠或 Edge 关闭时暂停采集。</p></div>
-  <details id="manual-pair"><summary>手动配对 / 其他看板地址</summary>
-  <button id="pair" class="secondary">生成扩展配对码</button><p class="hint">生成新码会使旧的配对码失效。</p>
-  <div id="pair-result" hidden><label for="pair-url">看板地址</label><input id="pair-url" readonly><label for="pair-code">配对码（仅供导入）</label><input id="pair-code" readonly></div>
+  <details id="sync-settings"><summary>同步设置</summary>
+    <p class="hint">云端每 15 分钟读取作业，电脑关机也可运行。首次启用或登录过期时，需要在电脑扩展中授权。</p>
+    <div class="collector-actions"><button id="cloud-authorize" class="secondary">授权 / 更新登录</button><button id="cloud-revoke" class="text-button" disabled>关闭云端并删除授权</button></div>
+    <div id="browser-settings" hidden><label class="collector-toggle"><input id="collector-enabled" type="checkbox">浏览器打开时自动导入</label><button id="collector-options" class="text-button">设置作业网站地址</button></div>
   </details>
   <p id="source-error" class="error" role="alert"></p>
 </dialog>
