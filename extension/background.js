@@ -59,6 +59,13 @@ async function upload(message,sender) {
   if(!source || source!==message.source) throw new Error("来源不匹配");
   const {boardURL,token,enabled,importCache={},sourceResults={}}=await chrome.storage.local.get(["boardURL","token","enabled","importCache","sourceResults"]);
   if(!enabled || !boardURL || !token) return {skipped:true};
+  if(source==="ruc_courses" && message.academic) {
+    const response=await fetch(`${boardURL}/api/import`,{method:"POST",credentials:"omit",headers:{"Content-Type":"application/json",Authorization:`Bearer ${token}`},body:JSON.stringify({source,academic:message.academic}),signal:AbortSignal.timeout(45000)});
+    const data=await response.json();if(!response.ok || data.error)throw new Error(data.error || "课表导入失败");
+    const time=new Date().toISOString();sourceResults[source]={time,count:data.count,changed:data.changed,error:null};
+    await chrome.storage.local.set({sourceResults,lastResult:`已读取 ${data.count} 个课次 · 更新 ${data.changed} 项`,lastTime:time});
+    await chrome.action.setBadgeText({text:Object.values(sourceResults).some(value=>value.error)?"!":""});return data;
+  }
   const tasks=message.tasks;
   if(!Array.isArray(tasks) || tasks.length>3000 || tasks.some(task=>!task || typeof task.external_id!=="string")) throw new Error("任务列表格式不正确");
   const cache=importCache[source] || {},changedTasks=tasks.filter(task=>cache[task.external_id]!==JSON.stringify(task));

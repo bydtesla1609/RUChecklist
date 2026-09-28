@@ -18,6 +18,8 @@ test("academic parser uses teaching dates, odd/even weeks and exact times; rejec
   const tasks=courses([row],calendar,models,"term");
   assert.equal(tasks.length,2);assert.equal(tasks[0].starts_at,"2026-09-07T00:00:00.000Z");assert.equal(tasks[0].ends_at,"2026-09-07T01:30:00.000Z");
   assert.equal(tasks[1].external_id,"term:lesson:3");assert.equal(tasks[0].details.teacher,"示例教师");
+  const numericCalendar={jxzllist:calendar.jxzllist.map(entry=>({...entry,rq:Date.parse(`${entry.rq}T00:00:00+08:00`)}))};
+  assert.deepEqual(courses([row],numericCalendar,models,"term"),tasks);
   assert.throws(()=>courses([row],{jxzllist:[]},models),/日期/);
   assert.throws(()=>courses([row],calendar,[]),/时间/);
   assert.throws(()=>courses([{...row,pkzc:"未知"}],calendar,models),/教学周/);
@@ -60,8 +62,17 @@ test("academic imports are idempotent, preserve manual fields/state and never re
   }
   try {
     assert.equal((await api("/api/import","POST",{source:"ruc_courses",tasks:[]})).status,401);
+    assert.equal((await api("/api/academic/snapshot")).status,401);
+    assert.equal((await api("/api/academic/retry","POST",{})).status,401);
     await api("/api/login","POST",{password:"test-only"});
     const auth={Authorization:`Bearer ${(await api("/api/collector-token","POST",{})).data.token}`};
+    const input={rows:[{...row,token:"must-not-be-stored"}],calendar:{jxzllist:calendar.jxzllist.map(entry=>({...entry,rq:Date.parse(`${entry.rq}T00:00:00+08:00`)}))},models,semester:"raw-term",semester_label:"示例学期",cookie:"must-not-be-stored"};
+    const imported=await api("/api/import","POST",{source:"ruc_courses",academic:input},auth);
+    assert.equal(imported.data.count,2);assert.equal(imported.data.changed,2);
+    assert.equal((await api("/api/academic/retry","POST",{})).data.changed,0);
+    const snapshot=(await api("/api/academic/snapshot")).data;assert.ok(!JSON.stringify(snapshot).includes("must-not-be-stored"));
+    assert.equal((await api("/api/board")).data.timetables[0].label,"示例学期");
+    db.exec("DELETE FROM tasks");
     const item=globalThis.RUAcademic.courses([row],calendar,models,"term")[0];
     const upload=()=>api("/api/import","POST",{source:"ruc_courses",tasks:[item]},auth);
     assert.equal((await upload()).data.changed,1);

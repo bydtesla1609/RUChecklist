@@ -15,11 +15,15 @@
     return [...result];
   }
   function day(value) {
-    const match=String(value || "").match(/^(\d{4})[-/年](\d{1,2})[-/月](\d{1,2})/);
+    if(/^\d{10}$|^\d{13}$/.test(String(value))) {
+      const date=new Date(Number(value)*(String(value).length===10?1000:1)+8*3600000);
+      return Number.isFinite(+date)?date.toISOString().slice(0,10):null;
+    }
+    const match=String(value || "").trim().match(/^(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})/);
     if(!match)return null;return `${match[1]}-${match[2].padStart(2,"0")}-${match[3].padStart(2,"0")}`;
   }
   function clock(value) {
-    const match=String(value || "").match(/(?:^|[ T])(\d{1,2}):(\d{2})(?::\d{2})?(?:$|\s)/);
+    const match=String(value || "").trim().match(/(?:^|[ T])(\d{1,2}):(\d{2})(?::\d{2})?(?:$|\s)/);
     return match && Number(match[1])<24 && Number(match[2])<60 ? `${match[1].padStart(2,"0")}:${match[2]}`:null;
   }
   function stamp(date,time) {
@@ -27,7 +31,7 @@
     const value=new Date(`${date}T${time}:00+08:00`);
     if(!Number.isFinite(+value) || new Date(+value+8*3600000).toISOString().slice(0,10)!==date)throw new Error("教务日期格式无法识别");return value.toISOString();
   }
-  function courses(rows,calendar,models,semester="") {
+  function courses(rows,calendar,models,semester="",semesterLabel="") {
     if(!Array.isArray(rows) || !Array.isArray(calendar?.jxzllist) || !Array.isArray(models))throw new Error("课表或教学周历尚未加载完整");
     const slots=models.flatMap(model=>model.pkgl00201List || []),result=[];
     for(const row of rows) {
@@ -36,12 +40,14 @@
       const weekday=Number(row.pksj[0]);
       const times=slots.filter(slot=>Number(slot.idjkssj)<Number(row.idjjssj) && Number(row.idjkssj)<Number(slot.idjjssj)).sort((a,b)=>Number(a.idjkssj)-Number(b.idjkssj));
       const start=clock(row.djkssj) || clock(times[0]?.djkssj),end=clock(row.djjssj) || clock(times.at(-1)?.djjssj);
+      if(!start || !end)throw new Error(`课表节次 ${Number(row.pksj.slice(1,3))}–${Number(row.pksj.slice(-2))} 未匹配起止时间（匹配 ${times.length} 个节次）`);
       for(const week of weeks(row.pkzc)) {
         const entry=calendar.jxzllist.find(entry=>Number(entry.zc)===week && Number(entry.xq)===weekday);
         const date=day(entry?.rq);
+        if(!date)throw new Error(`第 ${week} 周、星期 ${weekday} 未取得日期（周历 ${calendar.jxzllist.length} 条，日期类型 ${typeof entry?.rq}）`);
         const starts_at=stamp(date,start),ends_at=stamp(date,end);if(ends_at<=starts_at)throw new Error("课表节次时间顺序异常");
         result.push({external_id:`${row.jczy013id || semester}:${row.id}:${week}`,title:row.kc_name,location:row.js_name || "",starts_at,ends_at,source_url:courseURL,
-          details:{teacher:row.teachernames || "",semester:String(semester || row.jczy013id || ""),week:String(week),period:`${Number(row.pksj.slice(1,3))}–${Number(row.pksj.slice(-2))}节`}});
+          details:{teacher:row.teachernames || "",assistant:row.zjls_name || "",campus:row.xq_name || "",semester:String(semester || row.jczy013id || ""),semester_label:semesterLabel || String(semester),course_id:String(row.id),weekday:String(weekday),week:String(week),period:`${Number(row.pksj.slice(1,3))}–${Number(row.pksj.slice(-2))}节`}});
       }
     }
     return [...new Map(result.map(item=>[item.external_id,item])).values()];
@@ -60,5 +66,24 @@
       return [item.external_id,item];
     })).values()];
   }
-  globalThis.RUAcademic={weeks,courses,exams};
+  function courseInput(input) {
+    if(!input || !Array.isArray(input.rows) || input.rows.length>1000 || !Array.isArray(input.calendar?.jxzllist) || input.calendar.jxzllist.length>1000 || !Array.isArray(input.models) || input.models.length>20)throw new Error("课表、周历或节次列表不完整");
+    const pick=(row,keys)=>Object.fromEntries(keys.filter(key=>["string","number"].includes(typeof row?.[key])).map(key=>{
+      const value=row[key];if(String(value).length>500)throw new Error("教务字段内容过长");return [key,value];
+    }));
+    const selected=pick(input,["semester","semester_label"]);
+    if(!selected.semester)throw new Error("缺少课表学期");
+    return {...selected,rows:input.rows.map(row=>pick(row,["id","jczy013id","kc_name","pksj","idjkssj","idjjssj","pkzc","djkssj","djjssj","pkztcode","sftkcode","teachernames","js_name","xq_name","zjls_name"])),
+      calendar:{jxzllist:input.calendar.jxzllist.map(row=>pick(row,["zc","xq","rq"]))},
+      models:input.models.map(model=>{
+        if(!Array.isArray(model.pkgl00201List) || model.pkgl00201List.length>50)throw new Error("节次时间表不完整");
+        return {...pick(model,["id"]),pkgl00201List:model.pkgl00201List.map(slot=>pick(slot,["idjkssj","idjjssj","djkssj","djjssj","zyxjs","djname1"]))};
+      })};
+  }
+  function timetable(input) {
+    const slots=input.models.flatMap(model=>model.pkgl00201List).map(slot=>({start:clock(slot.djkssj),end:clock(slot.djjssj),period:String(slot.zyxjs || "").replace(",","–"),label:String(slot.djname1 || "")})).filter(slot=>slot.start && slot.end).sort((a,b)=>a.start.localeCompare(b.start));
+    return {semester:String(input.semester),label:input.semester_label || String(input.semester),slots,
+      days:input.calendar.jxzllist.map(entry=>({week:Number(entry.zc),weekday:Number(entry.xq),date:day(entry.rq)})).filter(entry=>entry.date && entry.week>0 && entry.weekday>=1 && entry.weekday<=7)};
+  }
+  globalThis.RUAcademic={weeks,courses,exams,courseInput,timetable};
 })();

@@ -16,7 +16,7 @@
     if(context===completedContext || Date.now()<retryAfter)return;
     running=true;const source=course?"ruc_courses":"ruc_exams";
     try {
-      let tasks;
+      let tasks,academic;
       if(course) {
         const service=window.student?.studentCourseListService;if(!service)return;
         const model=view.form.pkgl002id;
@@ -25,7 +25,8 @@
           service.findWeekCalendarList({xnxq:semester}),
           service.searchPkgl002List({jczy013id:semester,dwcheck:"1"})
         ]);
-        tasks=RUAcademic.courses(rows,calendar,models.filter(item=>item.id===model),semester);
+        academic=RUAcademic.courseInput({rows,calendar,models:models.filter(item=>String(item.id)===String(model)),semester:String(semester),semester_label:view.businessDict?.xnxq?.find(item=>String(item.id)===String(semester))?.name || String(semester)});
+        tasks=[];
       } else {
         const service=window.student?.testArrangeSearch;if(!service)return;
         const listing=await service.findKwglPkcsszlb();
@@ -38,8 +39,8 @@
           for(const session of sessions)tasks.push(...RUAcademic.exams(await service.findXsksapNew({jczy013id:semester,kwgl001id:session.id,kcbh:""}),semester,session.id));
         }
       }
-      const signature=JSON.stringify(tasks);
-      if(signature!==last) {window.postMessage({kind:"ru-academic-result",source,tasks},location.origin);last=signature;}
+      const signature=JSON.stringify(academic || tasks);
+      if(signature!==last) {window.postMessage({kind:"ru-academic-result",source,tasks,...(academic?{academic}:{})},location.origin);last=signature;}
       completedContext=context;
     }catch(error){retryAfter=Date.now()+30000;window.postMessage({kind:"ru-academic-result",source,tasks:[],error:String(error.message).slice(0,300)},location.origin);}
     finally{running=false;}

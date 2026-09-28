@@ -254,21 +254,49 @@ try {
   await page.screenshot({path:"data/screenshots/form.png"});
   await page.locator("#task-dialog .close-dialog").first().click();
   const scheduleDate=await page.evaluate(()=>localInput(new Date()).slice(0,10));
-  await page.evaluate(async day=>{
-    await api("/api/tasks","POST",{category:"课程",title:"教学周课表验证",location:"明德楼 101",starts_at:`${day}T08:00:00+08:00`,ends_at:`${day}T09:30:00+08:00`,details:{teacher:"示例教师",week:"4",period:"1–2节"}});
+  const weekStart=await page.evaluate(day=>monday(day),scheduleDate);
+  const timetable={semester:"term-a",label:"2026–2027 学年秋",slots:[
+    {label:"第一大节",period:"1–2",start:"08:00",end:"09:30"},{label:"第二大节",period:"3–4",start:"10:00",end:"11:30"},
+    {label:"第三大节",period:"5–6",start:"12:00",end:"13:30"},{label:"第四大节",period:"7–8",start:"14:00",end:"15:30"},
+    {label:"第五大节",period:"9–10",start:"16:00",end:"17:30"},{label:"第六大节",period:"11–12",start:"18:00",end:"19:30"}],days:[]};
+  for(let i=0;i<21;i++)timetable.days.push({week:4+Math.floor(i/7),weekday:i%7+1,date:new Date(Date.parse(weekStart)+i*86400000).toISOString().slice(0,10)});
+  database.prepare("INSERT INTO settings(key,value) VALUES (?,?)").run("timetable:term-a",JSON.stringify(timetable));
+  await page.evaluate(async ({day,weekStart})=>{
+    for(const week of [4,5]) await api("/api/tasks","POST",{category:"课程",title:"教学周课表验证",location:"明德楼 101",starts_at:`${shiftDay(weekStart,(week-4)*7)}T08:00:00+08:00`,ends_at:`${shiftDay(weekStart,(week-4)*7)}T09:30:00+08:00`,details:{semester:"term-a",semester_label:"2026–2027 学年秋",teacher:"示例教师",week:String(week),weekday:"1",period:"1–2节"}});
+    const names=["线性代数","概率论","数据结构","英语阅读","体育"];
+    for(let i=0;i<names.length;i++)await api("/api/tasks","POST",{category:"课程",title:names[i],location:`示例教室 ${i+201}`,starts_at:`${shiftDay(weekStart,i+1)}T${i%2?"14":"10"}:00:00+08:00`,ends_at:`${shiftDay(weekStart,i+1)}T${i%2?"15":"11"}:30:00+08:00`,details:{semester:"term-a",teacher:"示例教师",campus:"示例校区",week:"4",weekday:String(i+2),period:i%2?"7–8节":"3–4节"}});
+    await api("/api/tasks","POST",{category:"课程",title:"上学期课程",starts_at:"2026-04-01T08:00:00+08:00",ends_at:"2026-04-01T09:30:00+08:00",details:{semester:"term-old",semester_label:"2025–2026 学年春",week:"2"}});
     await api("/api/tasks","POST",{category:"考试",title:"期中考试验证",location:"示例考场",starts_at:`${shiftDay(day,2)}T09:00:00+08:00`,ends_at:`${shiftDay(day,2)}T11:00:00+08:00`,details:{seat:"28"}});
     await refresh();
-  },scheduleDate);
+  },{day:scheduleDate,weekStart});
   await category(page,"课程").click();
-  assert.equal(await page.locator(".week-day").count(),7);
-  assert.equal(await page.locator(".class-session .task-title").textContent(),"教学周课表验证");
-  assert.match(await page.locator(".class-session").textContent(),/08:00 — 09:30/);
-  assert.equal(await page.locator("#count-overdue").textContent(),"1.5 h");
-  await page.getByRole("button",{name:"下一周",exact:true}).click();assert.equal(await page.locator(".class-session").count(),0);
-  await page.getByRole("button",{name:"本周",exact:true}).click();assert.equal(await page.locator(".class-session").count(),1);
-  await page.locator(".class-session .edit-task").click();assert.equal(await page.locator("#schedule-person").inputValue(),"示例教师");
+  assert.equal(await page.locator(".summary").isVisible(),false);
+  assert.equal(await page.locator(".timetable thead th").count(),8);
+  assert.equal(await page.locator(".timetable tbody tr").count(),6);
+  assert.equal(await page.locator("#course-semester").inputValue(),"term-a");
+  assert.equal(await page.locator(".course-block").filter({hasText:"教学周课表验证"}).count(),1);
+  assert.match(await page.locator(".course-block").filter({hasText:"教学周课表验证"}).textContent(),/4–5周/);
+  await page.locator("#course-week").selectOption("6");assert.equal(await page.locator(".course-block").count(),0);
+  await page.locator("#course-week").selectOption("5");assert.equal(await page.locator(".course-block").count(),1);
+  await page.locator("#course-semester").selectOption("term-old");assert.equal(await page.locator(".course-block h3").textContent(),"上学期课程");
+  await page.locator("#course-semester").selectOption("term-a");
+  await page.getByRole("button",{name:"查看课程：教学周课表验证",exact:true}).click();
+  assert.equal(await page.locator("#course-occurrence option").count(),2);
+  await page.locator("#course-detail .edit-task").click();assert.equal(await page.locator("#schedule-person").inputValue(),"示例教师");
   await page.locator("#task-title").fill("教学周课表验证 · 改名");await page.locator("#save-task").click();await page.locator("#task-dialog").waitFor({state:"hidden"});
   assert.equal(JSON.parse(database.prepare("SELECT overrides FROM tasks WHERE title=?").get("教学周课表验证 · 改名").overrides).includes("details"),false);
+  await page.locator("#course-week").selectOption("6");await page.locator("#add-task").click();
+  await page.locator("#task-title").fill("手动补课验证");
+  await page.locator("#starts-at").fill(`${timetable.days[16].date}T14:00`);await page.locator("#ends-at").fill(`${timetable.days[16].date}T15:30`);
+  await page.locator("#save-task").click();await page.locator("#task-dialog").waitFor({state:"hidden"});
+  const addedCourse=page.locator('.timetable td[data-weekday="3"][data-start="14:00"] .course-block');await addedCourse.waitFor();assert.match(await addedCourse.textContent(),/手动补课验证/);
+  await addedCourse.locator(".course-view").click();await page.locator("#course-detail .edit-task").click();
+  await page.locator("#starts-at").fill(`${timetable.days[10].date}T10:00`);await page.locator("#ends-at").fill(`${timetable.days[10].date}T11:30`);
+  await page.locator("#save-task").click();await page.locator("#task-dialog").waitFor({state:"hidden"});
+  await page.locator("#course-week").selectOption("5");assert.match(await page.locator('.timetable td[data-weekday="4"][data-start="10:00"]').textContent(),/手动补课验证/);
+  const moved=database.prepare("SELECT id,revision,details FROM tasks WHERE title=?").get("手动补课验证");assert.equal(JSON.parse(moved.details).week,"5");
+  await page.evaluate(async task=>{await api(`/api/tasks/${task.id}`,"DELETE",{revision:task.revision});await refresh();},moved);
+  await page.locator("#course-week").selectOption("all");
   await page.screenshot({path:"data/screenshots/courses.png",fullPage:true});
   await category(page,"考试").click();assert.match(await page.locator(".exam-group").textContent(),/2 天后/);assert.match(await page.locator(".exam-group").textContent(),/座位 · 28/);
   await page.screenshot({path:"data/screenshots/exams.png",fullPage:true});
@@ -279,7 +307,7 @@ try {
   }
   await phone.setViewportSize({width:390,height:844});await category(phone,"课程").click();await phone.screenshot({path:"data/screenshots/courses-mobile.png",fullPage:true});
   assert.deepEqual(errors, []);
-  console.log("PASS: Beijing monthly calendar, date selection, month/keyboard navigation, ranges, undated tasks, direct status and conflict handling, downloadable extension, unified cloud/local sync, completion order, archive filter/detail/delete, simulated board-to-extension controls, category inheritance, required title, location, detail/card todo CRUD, mouse/touch/keyboard sorting, two browser sessions, conflict draft retention, 320–768px layouts, SVG alignment, attachment upload/preview/download and shared links. Screenshots: data/screenshots/ (synthetic data only).");
+  console.log("PASS: Beijing monthly calendar, date selection, month/keyboard navigation, ranges, undated tasks, direct status and conflict handling, downloadable extension, unified cloud/local sync, completion order, archive filter/detail/delete, simulated board-to-extension controls, category inheritance, required title, location, detail/card todo CRUD, mouse/touch/keyboard sorting, two browser sessions, conflict draft retention, 320–768px layouts, timetable semester/week filters, recurring course grouping, course detail editing, hidden course summary, logo alignment, attachment upload/preview/download and shared links. Screenshots: data/screenshots/ (synthetic data only).");
 } finally {
   await browser?.close(); server.closeAllConnections(); await new Promise(resolve=>server.close(resolve)); database.close();
   await rm(directory, {recursive:true,force:true});

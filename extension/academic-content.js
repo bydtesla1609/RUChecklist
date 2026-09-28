@@ -5,7 +5,7 @@
     const data=event.data;
     if(event.source!==window || event.origin!==location.origin || data?.kind!=="ru-academic-result" || !["ruc_courses","ruc_exams"].includes(data.source))return;
     if(!Array.isArray(data.tasks) || data.tasks.length>3000)return;
-    received=true;chrome.runtime.sendMessage({type:"capture",source:data.source,tasks:data.tasks,...(data.error?{error:data.error}:{})}).catch(()=>{});
+    received=true;chrome.runtime.sendMessage({type:"capture",source:data.source,tasks:data.tasks,...(data.academic?{academic:data.academic}:{}),...(data.error?{error:data.error}:{})}).catch(()=>{});
   });
   chrome.runtime.onMessage.addListener(message=>{if(message.type==="read-current")window.postMessage({kind:"ru-academic-read"},location.origin);});
   setTimeout(()=>{

@@ -1,4 +1,5 @@
 import {cloudStatus,enableCloud,revokeCloud,saveCloudRecipe,runCloud} from "./cloud.mjs";
+import "./extension/academic-parser.js";
 export const SOURCES = {
   smartestu: {name: "SmartEstu", url: "https://smartestu.cn/assignment"},
   ketangpai: {name: "课堂派", url: "https://www.ketangpai.com/"},
@@ -100,7 +101,7 @@ export function validate(value, imported=false) {
   if(starts_at && starts_at>ends_at) fail(400,"结束时间不能早于开始时间");
   if(value.details!=null && (typeof value.details!=="object" || Array.isArray(value.details))) fail(400,"日程信息格式不正确");
   const details={};
-  for(const name of ["teacher","semester","week","period","seat","organizer"]) {
+  for(const name of ["teacher","assistant","campus","semester","semester_label","course_id","weekday","week","period","seat","organizer"]) {
     const text=value.details?.[name];if(text===undefined)continue;
     if(typeof text!=="string" || text.length>300) fail(400,"日程信息最多 300 字");details[name]=text.trim();
   }
@@ -113,7 +114,31 @@ async function collectorAuth(request,db) {
 }
 async function importTasks(request, db, sources) {
   await collectorAuth(request,db);
-  return json(await applyImport(await body(request),db,sources));
+  const payload=await body(request);
+  if(payload.academic!==undefined) {
+    if(payload.source!=="ruc_courses")fail(400,"课表数据来源不匹配");
+    return json(await importCourseInput(payload.academic,db,sources));
+  }
+  return json(await applyImport(payload,db,sources));
+}
+async function importCourseInput(input,db,sources) {
+  let clean;
+  try {clean=globalThis.RUAcademic.courseInput(input);}catch(error){fail(400,error.message);}
+  await db.prepare("INSERT INTO settings(key,value) VALUES ('academic_snapshot',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(JSON.stringify({captured_at:now(),input:clean})).run();
+  try {
+    const tasks=globalThis.RUAcademic.courses(clean.rows,clean.calendar,clean.models,clean.semester,clean.semester_label);
+    if(tasks.length>3000)throw new Error("本学期课次超过 3000，请分学期同步");
+    for(const task of tasks)validate({...task,category:"课程"},true);
+    let changed=0;
+    for(let i=0;i<Math.max(tasks.length,1);i+=30) changed+=(await applyAcademicImport({source:"ruc_courses",tasks:tasks.slice(i,i+30),task_count:tasks.length},db,sources)).changed;
+    const table=globalThis.RUAcademic.timetable(clean);
+    await db.prepare("INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE settings.value IS NOT excluded.value").bind(`timetable:${clean.semester}`,JSON.stringify(table)).run();
+    return {ok:true,changed,count:tasks.length};
+  }catch(error) {
+    const message=String(error.message).slice(0,300);
+    await db.prepare("UPDATE sources SET last_seen=?,error=? WHERE id='ruc_courses'").bind(now(),message).run();
+    return {ok:false,error:message};
+  }
 }
 async function applyImport(payload,db,sources) {
   const {source,tasks,error}=payload;
@@ -271,6 +296,16 @@ async function route(request, env) {
   if(path==="/api/cloud" && method==="GET") return json(await cloudStatus(env));
   if(path==="/api/cloud" && method==="DELETE") return json(await revokeCloud(env));
   if(path==="/api/cloud/run" && method==="POST") return json(await runCloud(env,payload=>applyImport(payload,db,configuredSources(env))));
+  if(path==="/api/academic/snapshot" && method==="GET") {
+    const saved=await db.prepare("SELECT value FROM settings WHERE key='academic_snapshot'").first();
+    return json(saved?JSON.parse(saved.value):null);
+  }
+  if(path==="/api/academic/retry" && method==="POST") {
+    const saved=await db.prepare("SELECT value FROM settings WHERE key='academic_snapshot'").first();
+    if(!saved)fail(400,"尚未收到新版扩展的课表数据");
+    const snapshot=JSON.parse(saved.value);if(Date.now()-Date.parse(snapshot.captured_at)>86400000)fail(400,"保存的课表数据已超过一天，请重新同步教务");
+    return json(await importCourseInput(snapshot.input,db,configuredSources(env)));
+  }
   if(path==="/api/files" && method==="POST") return uploadFile(request,db);
   const fileMatch=path.match(/^\/api\/files\/([a-zA-Z0-9-]{1,50})$/);
   if(fileMatch && ["GET","HEAD"].includes(method)) return downloadFile(request,db,fileMatch[1]);
@@ -283,7 +318,8 @@ async function route(request, env) {
       db.prepare("SELECT id,name,type,size FROM files WHERE id IN (SELECT value FROM tasks,json_each(tasks.attachments) WHERE tasks.deleted=0)"),db.prepare("SELECT coalesce(sum(size),0) AS used FROM files")]);
     const configuration=configuredSources(env);
     const byId=new Map(files.results.map(file=>[file.id,file]));
-    return json({tasks:tasks.results.map(task=>expose(task,byId)),sources:sources.results.map(source=>({...source,...configuration[source.id]})),storage:{used:storage.results[0].used,limit:STORAGE_LIMIT,file_limit:FILE_LIMIT},server_time:now()});
+    const tables=await db.prepare("SELECT value FROM settings WHERE key LIKE 'timetable:%'").all();
+    return json({tasks:tasks.results.map(task=>expose(task,byId)),timetables:tables.results.map(row=>JSON.parse(row.value)),sources:sources.results.map(source=>({...source,...configuration[source.id]})),storage:{used:storage.results[0].used,limit:STORAGE_LIMIT,file_limit:FILE_LIMIT},server_time:now()});
   }
   if(path==="/api/archive" && method==="GET") {
     const category=url.searchParams.get("category") || "全部", offset=Number(url.searchParams.get("offset") || 0);
