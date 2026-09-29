@@ -22,8 +22,8 @@ async function cloudResult(source,message) {
 }
 async function cloudAPI(path,value) {
   const {boardURL,token}=await chrome.storage.local.get(["boardURL","token"]);
-  if(boardURL!==BOARD_ORIGIN || !token) throw new Error("请先连接正式看板，再授权云端采集");
-  const response=await fetch(`${BOARD_ORIGIN}${path}`,{method:"POST",credentials:"omit",headers:{"Content-Type":"application/json",Authorization:`Bearer ${token}`},body:JSON.stringify(value),signal:AbortSignal.timeout(20000)});
+  if(!BOARD_ORIGINS.includes(boardURL) || !token) throw new Error("请先连接自己的看板，再授权云端采集");
+  const response=await fetch(`${boardURL}${path}`,{method:"POST",credentials:"omit",headers:{"Content-Type":"application/json",Authorization:`Bearer ${token}`},body:JSON.stringify(value),signal:AbortSignal.timeout(20000)});
   const data=await response.json();if(!response.ok)throw new Error(data.error || "云端授权失败");return data;
 }
 async function cloudRecipe(message,sender) {
@@ -31,8 +31,8 @@ async function cloudRecipe(message,sender) {
   if(!cloudEnabled) return {skipped:true};
   if(!sender.tab || sourceFor(sender.url)!==message.source || CampusCloudRoutes.source(message.recipe?.url)!==message.source) throw new Error("云端授权来源不匹配");
   const {boardURL,token}=await chrome.storage.local.get(["boardURL","token"]);
-  if(boardURL!==BOARD_ORIGIN || !token)throw new Error("请先连接正式看板");
-  const response=await fetch(`${BOARD_ORIGIN}/api/collector-config`,{credentials:"omit",headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(15000)});
+  if(!BOARD_ORIGINS.includes(boardURL) || !token)throw new Error("请先连接自己的看板");
+  const response=await fetch(`${boardURL}/api/collector-config`,{credentials:"omit",headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(15000)});
   if(!response.ok)throw new Error("无法确认云端授权，请重新连接看板");
   if(!(await response.json()).cloud_enabled){await chrome.storage.local.set({cloudEnabled:false,cloudRecipeCache:{}});return {skipped:true};}
   if(!await chrome.permissions.contains({permissions:["cookies"]})) throw new Error("请在扩展设置中授权云端采集");

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {DatabaseSync} from "node:sqlite";
 import {sqliteBinding} from "./local.mjs";
-import trial from "./trial-worker.mjs";
+import trial,{runTrialCloud} from "./trial-worker.mjs";
 import {trialSchema,partition} from "./trial-schema.mjs";
 import {digest,sourceLinks} from "./worker.mjs";
 import vm from "node:vm";
@@ -39,11 +39,12 @@ export async function trialFixture() {
 
 if(!process.env.TRIAL_UI_FIXTURE) test("trial accounts enforce invitations, isolate all board data and scope import tokens",async()=>{
   const {database:db,env,invites,client}=await trialFixture();
-  const a=client(),b=client(),anonymous=client(),password="Only-a-test-password-123";
+  const a=client(),b=client(),anonymous=client(),password="Ab1234";
   try {
     assert.equal((await anonymous.api("/api/board")).status,401);
     assert.equal((await a.api("/api/register","POST",{username:"alice",password,invite:"bad"})).status,400);
     assert.equal((await a.api("/api/register","POST",{username:"alice",password,invite:invites[0]},{Origin:"https://evil.example"})).status,403);
+    for(const weak of ["Ab123","abcdef","123456"])assert.equal((await a.api("/api/register","POST",{username:"alice",password:weak,invite:invites[0]})).status,400);
     const registered=await a.api("/api/register","POST",{username:"alice",password,invite:invites[0]});assert.equal(registered.status,200);assert.match(registered.data.recovery,/^[a-f0-9]{48}$/);
     assert.ok(!JSON.stringify(registered.data).includes("access_token"));assert.match(registered.headers.get("set-cookie"),/HttpOnly; Secure; SameSite=Strict/);
     assert.equal((await b.api("/api/register","POST",{username:"bob",password,invite:invites[0]})).status,409);
@@ -71,7 +72,7 @@ if(!process.env.TRIAL_UI_FIXTURE) test("trial accounts enforce invitations, isol
     assert.equal((await b.api("/api/academic/snapshot")).data,null);
     db.prepare("UPDATE u1_tasks SET status='done',completed_at='2026-01-01T00:00:00Z' WHERE id=?").run(task.id);
     assert.equal((await a.api("/api/archive")).data.total,1);assert.equal((await b.api("/api/archive")).data.total,0);
-    assert.equal((await a.api("/api/cloud")).data.enabled,false);assert.equal((await a.api("/api/cloud-authorize","POST",{})).status,403);
+    assert.equal((await a.api("/api/cloud")).data.enabled,false);assert.equal((await a.api("/api/cloud-authorize","POST",{})).status,401);
     const renewal=(await a.api("/api/collector-token","POST",{})).data.token;
     assert.equal((await anonymous.api("/api/collector-config","GET",undefined,{Authorization:`Bearer ${ta}`})).status,401);
     const recovered=await anonymous.api("/api/recover","POST",{username:"alice",password:"Replacement-password-123",recovery:registered.data.recovery});assert.equal(recovered.status,200);
@@ -94,6 +95,38 @@ if(!process.env.TRIAL_UI_FIXTURE) test("generic website input validates URLs, ke
   assert.equal(links.length,2);assert.equal(links[1].source,null);
   for(const url of ["javascript:alert(1)","http://example.com","https://user:password@example.com"]){assert.throws(()=>sourceLinks([url]));}
   assert.throws(()=>sourceLinks(Array(13).fill("https://example.com")));
+});
+if(!process.env.TRIAL_UI_FIXTURE) test("trial cloud grants, encrypted recipes and scheduled imports stay within each account",async()=>{
+  const {database:db,env,invites,client}=await trialFixture();env.CLOUD_ENCRYPTION_KEY="12".repeat(32);
+  const a=client(),b=client(),anonymous=client();
+  try {
+    for(const [i,c] of [a,b].entries())await c.api("/api/register","POST",{username:`cloud_${i}`,password:"Ab1234",invite:invites[i]});
+    const ta=(await a.api("/api/collector-token","POST",{})).data.token,tb=(await b.api("/api/collector-token","POST",{})).data.token;
+    const grant={Authorization:`Bearer ${ta}`},grantB={Authorization:`Bearer ${tb}`};
+    const recipe={source:"smartestu",recipe:{url:"https://smartestu.cn/api/homework/student/mark/queryHomeworks",method:"POST",page_url:"https://smartestu.cn/assignment",headers:{cookie:"session=synthetic-trial-cookie","content-type":"application/json"},body:JSON.stringify({pageNo:1,pageSize:20})}};
+    assert.equal((await anonymous.api("/api/cloud-credentials","POST",recipe,grant)).status,403);
+    assert.equal((await anonymous.api("/api/cloud-authorize","POST",{},grant)).status,200);
+    assert.equal((await anonymous.api("/api/cloud-credentials","POST",recipe,grant)).status,400);
+    await a.api("/api/source-links","PUT",{urls:["https://smartestu.cn/assignment"]});
+    await b.api("/api/source-links","PUT",{urls:["https://smartestu.cn/assignment"]});
+    assert.equal((await anonymous.api("/api/cloud-credentials","POST",recipe,grant)).status,200);
+    assert.equal((await b.api("/api/cloud")).data.enabled,false);
+    assert.equal((await a.api("/api/cloud")).data.interval_minutes,30);
+    const ciphertext=db.prepare("SELECT value FROM u1_settings WHERE key='cloud_credential_smartestu'").get().value;
+    assert.ok(!ciphertext.includes("synthetic"));assert.ok(!JSON.stringify((await a.api("/api/cloud")).data).includes("cookie"));
+    let reads=0;const fetcher=async(url,options)=>{reads++;assert.equal(options.headers.cookie,"session=synthetic-trial-cookie");return url.endsWith("/api/auth/session")?Response.json({sessionContext:"synthetic-context",csrfToken:"synthetic-csrf"}):Response.json({data:{pageNo:1,pageTotal:1,courseHomeworkDTOList:[{studentCourseHomeworkDTOList:[{id:"trial-cloud-work",name:"Cloud assignment",submission_status:"completed"}]}]}});};
+    assert.equal((await runTrialCloud(env,0,{fetcher})).smartestu.changed,1);
+    const task=(await a.api("/api/board")).data.tasks[0];assert.equal(task.status,"done");assert.equal((await b.api("/api/board")).data.tasks.length,0);
+    const requests=reads;await runTrialCloud(env,60000,{fetcher});assert.equal(reads,requests);
+    assert.equal((await runTrialCloud(env,1800000,{fetcher})).smartestu.changed,0);
+    assert.equal((await a.api("/api/board")).data.tasks[0].revision,task.revision);
+    await anonymous.api("/api/cloud-authorize","POST",{},grantB);
+    db.prepare("INSERT INTO u2_settings(key,value) VALUES ('cloud_credential_smartestu',?)").run(ciphertext);
+    const beforeReplay=reads;const replay=await runTrialCloud(env,60000,{fetcher});assert.ok(replay.smartestu.error);assert.equal(reads,beforeReplay);
+    await a.api("/api/cloud","DELETE");assert.equal((await runTrialCloud(env,0,{fetcher})).skipped,true);
+    assert.equal(db.prepare("SELECT count(*) n FROM u1_settings WHERE key LIKE 'cloud_credential_%'").get().n,0);
+    await b.api("/api/source-links","PUT",{urls:[]});assert.equal(db.prepare("SELECT count(*) n FROM u2_settings WHERE key LIKE 'cloud_credential_%'").get().n,0);
+  }finally{db.close();}
 });
 if(!process.env.TRIAL_UI_FIXTURE) test("extension pairs to the correct pilot account and scans only configured supported links",async()=>{
   let saved={boardURL:"https://campus-task-board.pages.dev",token:"f".repeat(48),enabled:true,cloudEnabled:true,importCache:{private:true},sourceResults:{private:true}},nextId=1;

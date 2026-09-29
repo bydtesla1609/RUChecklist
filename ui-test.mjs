@@ -23,6 +23,7 @@ let browser;
 try {
   browser = await chromium.launch({headless: true});
   const desktop = await browser.newContext({viewport: {width: 1440, height: 1050}});
+  await desktop.addInitScript(()=>localStorage.setItem("ruchecklist-demo:personal","seen"));
   const page = await desktop.newPage(), errors = [];
   page.on("pageerror", error => errors.push(error.message));
   async function login(page) {
@@ -76,6 +77,7 @@ try {
   });
   assert.deepEqual(await card.locator(".todo-text").allTextContents(), ["读论文并标注", "整理笔记"]);
   const mobile = await browser.newContext({viewport: {width: 390, height: 844}, isMobile: true, hasTouch: true, deviceScaleFactor: 2});
+  await mobile.addInitScript(()=>localStorage.setItem("ruchecklist-demo:personal","seen"));
   const phone = await mobile.newPage(); phone.on("pageerror", error => errors.push(error.message));
   await login(phone); await category(phone, "活动").click();
   assert.equal(await phone.locator(".brand-icon img").count(),2);
@@ -245,6 +247,7 @@ try {
   await page.evaluate(()=>checkCloud());assert.equal(await page.locator("#collector-scan").isDisabled(),false);
   await page.locator("#collector-scan").click();await page.waitForFunction(()=>!syncing);
   assert.equal(cloudRuns,1);assert.equal(await page.evaluate(()=>window.testScanCount),1);
+  await page.locator("#collector-enabled").check();await page.locator("#collector-scan").click();await page.waitForFunction(()=>!syncing);assert.equal(cloudRuns,2);assert.equal(await page.evaluate(()=>window.testScanCount),2);
   assert.match(await page.locator("#sources-list").textContent(),/已同步/);
   await page.locator("#sync-settings summary").click();
   await page.screenshot({path:"data/screenshots/sources.png"});

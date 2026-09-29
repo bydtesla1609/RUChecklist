@@ -157,7 +157,7 @@ async function importCourseInput(input,db,sources) {
     return {ok:false,error:message};
   }
 }
-async function applyImport(payload,db,sources) {
+export async function applyImport(payload,db,sources) {
   const {source,tasks,error}=payload;
   if(!Object.hasOwn(SOURCES,source) || !Array.isArray(tasks) || tasks.length>30) fail(400,"每批最多导入 30 项作业，且必须指定已配置来源");
   if(error!==undefined && (typeof error!=="string" || error.length>300 || tasks.length)) fail(400,"错误状态格式不正确");
@@ -307,7 +307,7 @@ async function route(request, env) {
     await collectorAuth(request,db);const input=globalThis.RUAcademic.courseInput((await body(request)).academic),table=globalThis.RUAcademic.timetable(input);
     await db.prepare("INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE settings.value IS NOT excluded.value").bind(`timetable:${input.semester}`,JSON.stringify(table)).run();return json({ok:true});
   }
-  if(path==="/api/collector-config" && method==="GET") { await collectorAuth(request,db); return json({sources:configuredSources(env),links:await savedLinks(env),account:env.TRIAL_USER || "personal",cloud_enabled:env.TRIAL_MODE?false:(await cloudStatus(env)).enabled}); }
+  if(path==="/api/collector-config" && method==="GET") { await collectorAuth(request,db); return json({sources:configuredSources(env),links:await savedLinks(env),account:env.TRIAL_USER || "personal",cloud_enabled:(await cloudStatus(env)).enabled}); }
   if(path==="/api/cloud-authorize" && method==="POST") {await collectorAuth(request,db);return json(await enableCloud(env));}
   if(path==="/api/cloud-credentials" && method==="POST") {await collectorAuth(request,db);const value=await body(request);return json(await saveCloudRecipe(env,value.source,value.recipe));}
   const hash=await sessionHash(request);
@@ -318,6 +318,7 @@ async function route(request, env) {
   if(path==="/api/source-links" && method==="PUT") {
     const links=sourceLinks((await body(request)).urls);
     await db.prepare("INSERT INTO settings(key,value) VALUES ('source_links',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(JSON.stringify(links)).run();
+    if(env.TRIAL_MODE)for(const source of ["smartestu","ketangpai","chaoxing"])if(!links.some(link=>link.source===source))await db.prepare("DELETE FROM settings WHERE key IN (?,?)").bind(`cloud_credential_${source}`,`cloud_state_${source}`).run();
     return json({links});
   }
   if(path==="/api/cloud" && method==="GET") return json(await cloudStatus(env));

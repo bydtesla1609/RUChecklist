@@ -70,5 +70,6 @@ test("extension sends no cloud credentials without opt-in and scopes cookies to 
   await vm.runInContext("cloudRecipe(message,sender)",context);assert.equal(reads,0);assert.equal(sent.length,0);
   saved.cloudEnabled=true;await vm.runInContext("cloudRecipe(message,sender)",context);assert.equal(reads,1);assert.equal(sent.length,1);assert.equal(sent[0].value.recipe.headers.cookie,"test=secret");
   await vm.runInContext("cloudRecipe(message,sender)",context);assert.equal(sent.length,1);
-  context.message.recipe.url="https://evil.example/";await assert.rejects(()=>vm.runInContext("cloudRecipe(message,sender)",context),/来源不匹配/);assert.equal(reads,2);
+  saved.boardURL="https://ruchecklist-trial.pages.dev";saved.cloudRecipeCache={};await vm.runInContext("cloudRecipe(message,sender)",context);assert.equal(sent.at(-1).url,"https://ruchecklist-trial.pages.dev/api/cloud-credentials");
+  context.message.recipe.url="https://evil.example/";await assert.rejects(()=>vm.runInContext("cloudRecipe(message,sender)",context),/来源不匹配/);assert.equal(reads,3);
 });

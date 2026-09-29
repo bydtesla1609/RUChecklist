@@ -1,5 +1,15 @@
-import board,{digest} from "./worker.mjs";
+import board,{digest,applyImport,SOURCES} from "./worker.mjs";
 import {partition} from "./trial-schema.mjs";
+import {runCloud} from "./cloud.mjs";
+const userEnvironment=(env,user)=>({...env,DB:partition(env.DB,user.slot),BOARD_PASSWORD_HASH:"trial-authenticated",SOURCE_URLS:"{}",TRIAL_MODE:true,TRIAL_USER:user.id});
+export async function runTrialCloud(env,scheduledTime=Date.now(),options={}) {
+  // One account per minute keeps the free pilot bounded; each slot runs every 30 minutes.
+  const slot=Math.floor(scheduledTime/60000)%30+1;
+  const user=await env.DB.prepare("SELECT id,slot FROM trial_users WHERE slot=? AND status='active'").bind(slot).first();
+  if(!user)return {skipped:true};
+  const scoped=userEnvironment(env,user);
+  return runCloud(scoped,payload=>applyImport(payload,scoped.DB,SOURCES),options);
+}
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status});};
 const json=(data,status=200,headers={})=>Response.json(data,{status,headers});
 const random=()=>[...crypto.getRandomValues(new Uint8Array(24))].map(b=>b.toString(16).padStart(2,"0")).join("");
@@ -13,10 +23,11 @@ async function body(request) {
   try {const result=JSON.parse(new TextDecoder().decode(bytes));if(result && typeof result==="object" && !Array.isArray(result))return result;}catch{}
   fail(400,"内容格式错误");
 }
-function credentials(data) {
+function credentials(data,requireNew=false) {
   const username=typeof data.username==="string"?data.username.trim().toLowerCase():"";
   if(!/^[a-z][a-z0-9_]{2,23}$/.test(username))fail(400,"用户名为 3–24 位小写字母、数字或下划线，以字母开头");
-  if(typeof data.password!=="string" || data.password.length<12 || new TextEncoder().encode(data.password).length>72)fail(400,"密码至少 12 个字符，最多 72 字节（建议使用英文、数字与符号）");
+  if(typeof data.password!=="string" || data.password.length<6 || new TextEncoder().encode(data.password).length>72)fail(400,"密码至少 6 个字符，最多 72 字节");
+  if(requireNew && (!/[A-Za-z]/.test(data.password) || !/[0-9]/.test(data.password)))fail(400,"密码需同时包含英文字母和数字");
   return {username,password:data.password};
 }
 async function limit(db,key,max) {
@@ -46,14 +57,14 @@ async function route(request,env) {
   const url=new URL(request.url),path=url.pathname,method=request.method,db=env.DB;
   if(!path.startsWith("/api/"))return board.fetch(request,env);
   if(!db)fail(503,"试用版尚未配置");
-  const collectorPath=["/api/import","/api/collector-config","/api/academic/timetable"].includes(path);
+  const collectorPath=["/api/import","/api/collector-config","/api/academic/timetable","/api/cloud-authorize","/api/cloud-credentials"].includes(path);
   if(!["GET","HEAD"].includes(method) && !collectorPath && ((request.headers.get("Origin") && request.headers.get("Origin")!==url.origin) || request.headers.get("Sec-Fetch-Site")==="cross-site"))fail(403,"不允许跨站请求");
   const token=(request.headers.get("Cookie") || "").split(";").map(s=>s.trim()).find(s=>s.startsWith("trial_session="))?.slice(14) || "";
   const hash=await digest(token);
   const session=token?await db.prepare("SELECT u.* FROM trial_users u JOIN trial_sessions s ON s.user_id=u.id WHERE s.hash=? AND s.expires>? AND u.status='active'").bind(hash,Date.now()).first():null;
   if(path==="/api/session" && method==="GET")return json({trial:true,authenticated:!!session,account:session?.id || null,username:session?.username || null,registration_open:env.REGISTRATION_OPEN==="true" && !!env.SUPABASE_URL && !!env.SUPABASE_SERVICE_ROLE_KEY});
   if(["/api/register","/api/login","/api/recover"].includes(path) && method==="POST") {
-    const data=await body(request),{username,password}=credentials(data);
+    const data=await body(request),{username,password}=credentials(data,path!=="/api/login");
     await limit(db,`ip:${await digest(request.headers.get("CF-Connecting-IP") || "local")}`,60);
     await limit(db,`name:${await digest(username)}`,10);
     if(path==="/api/register") {
@@ -113,9 +124,8 @@ async function route(request,env) {
     if(result.user?.id!==user.auth_id)fail(401,"密码不正确");
     const recovery=random();await db.prepare("UPDATE trial_users SET recovery_hash=? WHERE id=?").bind(await digest(recovery),user.id).run();return json({recovery});
   }
-  if(path==="/api/cloud" && method==="GET")return json({available:false,enabled:false,sources:{}});
-  if(path.startsWith("/api/cloud") || path.startsWith("/api/academic/retry"))fail(403,"首轮试用使用电脑扩展采集，未开放云端登录授权");
-  const scoped={...env,DB:partition(db,user.slot),BOARD_PASSWORD_HASH:"trial-authenticated",SOURCE_URLS:"{}",CLOUD_ENCRYPTION_KEY:undefined,TRIAL_MODE:true,TRIAL_USER:user.id,TRIAL_AUTHENTICATED:!collectorPath};
+  if(path.startsWith("/api/academic/retry"))fail(403,"请通过浏览器重新同步课表");
+  const scoped={...userEnvironment(env,user),TRIAL_AUTHENTICATED:!collectorPath};
   if(path==="/api/collector-token" && method==="POST") {
     const collector=random(),hash=await digest(collector);
     await db.batch([db.prepare("INSERT INTO trial_collectors(hash,user_id) VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET hash=excluded.hash").bind(hash,user.id),scoped.DB.prepare("INSERT INTO settings(key,value) VALUES ('collector_hash',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(hash)]);
@@ -123,7 +133,7 @@ async function route(request,env) {
   }
   return board.fetch(request,scoped);
 }
-export default {async fetch(request,env){
+export default {async scheduled(event,env,ctx){ctx.waitUntil(runTrialCloud(env,event.scheduledTime));},async fetch(request,env){
   let response;try {response=await route(request,env);}catch(error){response=json({error:error.status?error.message:"请求未完成，请稍后重试"},error.status || 500);}
   const headers=new Headers(response.headers);headers.set("Cache-Control","no-store");headers.set("X-Content-Type-Options","nosniff");headers.set("Referrer-Policy","no-referrer");
   if(!headers.has("Content-Security-Policy"))headers.set("Content-Security-Policy","default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");

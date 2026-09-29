@@ -17,7 +17,7 @@ function saveDraft() {
   } catch { $("draft-state").textContent="草稿保存失败，请保持此标签页打开并保存设置。"; }
 }
 chrome.storage.local.get(["boardURL","token","enabled","lastResult","lastTime","sourceURLs"]).then(data=>{
-  const trial=data.boardURL==="https://ruchecklist-trial.pages.dev";$("legacy-settings").hidden=trial;$("options-cloud").hidden=trial;$("open-board").href=data.boardURL || "https://campus-task-board.pages.dev";
+  const trial=data.boardURL==="https://ruchecklist-trial.pages.dev";$("legacy-settings").hidden=trial;$("options-cloud").hidden=false;$("cloud-frequency").textContent=trial?"30":"15";$("open-board").href=data.boardURL || "https://campus-task-board.pages.dev";
   $("url").value=data.boardURL || "https://campus-task-board.pages.dev";$("token").value=data.token || "";$("enabled").checked=!!data.enabled;
   $("result").textContent=data.lastResult ? `${data.lastResult} · ${new Date(data.lastTime).toLocaleString()}` : "尚未连接";
   for(const source of Object.keys(sourceHosts)) $(source).value=data.sourceURLs?.[source] || "";
@@ -70,12 +70,12 @@ chrome.storage.onChanged?.addListener((changes,area)=>{if(area==="local" && chan
 $("cloud-authorize").onclick=async()=>{
   if(!$("cloud-consent").checked){$("cloud-result").textContent="请先阅读并勾选云端登录授权说明。";return;}
   try {
-    if(!chrome.runtime.getManifest().optional_host_permissions?.includes("http://*.chaoxing.com/*")) throw new Error("扩展后台尚未加载新增权限。请点击顶部“重新加载此扩展”，确认版本 v1.3.4 后再授权。");
+    if(!chrome.runtime.getManifest().optional_host_permissions?.includes("http://*.chaoxing.com/*")) throw new Error("扩展后台尚未加载新增权限。请点击顶部“重新加载此扩展”，确认版本 v1.5.1 或更新版本 后再授权。");
     const allowed=await chrome.permissions.request({permissions:["cookies"],origins:["https://openapiv5.ketangpai.com/*","http://*.chaoxing.com/*","https://*.chaoxing.com/*","https://ketangpai.com/*"]});
     if(!allowed)throw new Error("未获得登录授权读取权限，云端采集未启用。");
     $("cloud-authorize").disabled=true;
     const result=await chrome.runtime.sendMessage({type:"cloud-authorize"});
     if(result?.ok!==true)throw new Error(result?.error || "扩展后台未确认授权。请点击顶部“重新加载此扩展”，重新打开后再授权。");
-    $("cloud-result").textContent="已启用。正在打开三个作业列表保存授权；加载完成后，到看板点击“云端立即同步”检查结果。";
+    $("cloud-result").textContent="已启用。正在打开已配置的网站保存授权；加载完成后，到看板点击“立即同步”检查结果。";
   }catch(error){$("cloud-result").textContent=error.message;}finally{$("cloud-authorize").disabled=false;}
 };

@@ -11,13 +11,13 @@ async function key(env) {
 }
 async function seal(env,source,value) {
   const iv=crypto.getRandomValues(new Uint8Array(12));
-  const bytes=await crypto.subtle.encrypt({name:"AES-GCM",iv,additionalData:new TextEncoder().encode(source)},await key(env),new TextEncoder().encode(JSON.stringify(value)));
+  const bytes=await crypto.subtle.encrypt({name:"AES-GCM",iv,additionalData:new TextEncoder().encode(env.TRIAL_USER?`${env.TRIAL_USER}:${source}`:source)},await key(env),new TextEncoder().encode(JSON.stringify(value)));
   const data=new Uint8Array(bytes);let binary="";for(let i=0;i<data.length;i+=8192)binary+=String.fromCharCode(...data.subarray(i,i+8192));
   return JSON.stringify({iv:[...iv],data:btoa(binary)});
 }
 async function open(env,source,value) {
   const {iv,data}=JSON.parse(value);
-  return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:"AES-GCM",iv:new Uint8Array(iv),additionalData:new TextEncoder().encode(source)},await key(env),Uint8Array.from(atob(data),x=>x.charCodeAt(0)))));
+  return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:"AES-GCM",iv:new Uint8Array(iv),additionalData:new TextEncoder().encode(env.TRIAL_USER?`${env.TRIAL_USER}:${source}`:source)},await key(env),Uint8Array.from(atob(data),x=>x.charCodeAt(0)))));
 }
 export function validateRecipe(source,recipe) {
   if(!sources.includes(source) || !recipe || CampusCloudRoutes.source(recipe.url)!==source || recipe.url.length>4000) throw error(400,"只允许授权三个平台的作业列表接口");
@@ -48,7 +48,7 @@ function recipeId(recipe) {
 export async function cloudStatus(env) {
   const {results}=await env.DB.prepare("SELECT key,value FROM settings WHERE key='cloud_enabled' OR key LIKE 'cloud_state_%'").all();
   const values=Object.fromEntries(results.map(row=>[row.key,row.value]));
-  return {available:!!env.CLOUD_ENCRYPTION_KEY,enabled:values.cloud_enabled==="1",sources:Object.fromEntries(sources.map(source=>[source,JSON.parse(values[`cloud_state_${source}`] || "{}")]))};
+  return {available:!!env.CLOUD_ENCRYPTION_KEY,enabled:values.cloud_enabled==="1",interval_minutes:env.TRIAL_MODE?30:15,sources:Object.fromEntries(sources.map(source=>[source,JSON.parse(values[`cloud_state_${source}`] || "{}")]))};
 }
 export async function enableCloud(env) {await key(env);await put(env,"cloud_enabled","1");return {ok:true};}
 export async function revokeCloud(env) {
@@ -57,6 +57,7 @@ export async function revokeCloud(env) {
 }
 export async function saveCloudRecipe(env,source,input) {
   if(await get(env,"cloud_enabled")!=="1") throw error(403,"云端授权已关闭，请主动重新启用");
+  if(env.TRIAL_MODE && !JSON.parse(await get(env,"source_links") || "[]").some(link=>link.source===source))throw error(400,"请先在网页添加此网站，再授权采集");
   const recipe=validateRecipe(source,input),stored=await get(env,`cloud_credential_${source}`);
   const recipes=stored?await open(env,source,stored):[];
   const id=recipeId(recipe),index=recipes.findIndex(item=>recipeId(item)===id);
@@ -89,7 +90,7 @@ export async function learningHTML(html,url,Rewriter=globalThis.HTMLRewriter) {
 }
 async function fetchList(recipe,fetcher) {
   const response=await fetcher(recipe.url,{method:recipe.method,headers:recipe.headers,...(recipe.body?{body:recipe.body}:{}),redirect:"manual",signal:AbortSignal.timeout(20000)});
-  if(response.status===401 || response.status===403 || (response.status>=300 && response.status<400)) throw error(401,"登录授权已失效或网站拒绝云端访问，请在 Edge 登录后重新授权");
+  if(response.status===401 || response.status===403 || (response.status>=300 && response.status<400)) throw error(401,"登录授权已失效或网站拒绝云端访问，请在浏览器登录后重新授权");
   if(!response.ok) throw error(502,`教学网站暂时不可用（HTTP ${response.status}）`);
   const reader=response.body.getReader(),chunks=[];let size=0;
   for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>4*1024*1024){await reader.cancel();throw error(502,"作业列表过大，请按课程授权");}chunks.push(value);}
@@ -99,7 +100,7 @@ async function smartSession(recipe,fetcher) {
   // SmartEstu binds list requests to the current cookie session and CSRF token.
   const raw=await fetchList({url:"https://smartestu.cn/api/auth/session",method:"GET",headers:{cookie:recipe.headers.cookie || "","x-auth-protocol":"cookie-v1"}},fetcher);
   let session;try{session=JSON.parse(raw);}catch{}
-  if(!session || [session.sessionContext,session.csrfToken].some(value=>typeof value!=="string" || !value || value.length>16000 || /[\r\n]/.test(value))) throw error(401,"SmartEstu 登录授权已失效，请在 Edge 登录后重新授权");
+  if(!session || [session.sessionContext,session.csrfToken].some(value=>typeof value!=="string" || !value || value.length>16000 || /[\r\n]/.test(value))) throw error(401,"SmartEstu 登录授权已失效，请在浏览器登录后重新授权");
   return {...recipe,headers:{...recipe.headers,"x-auth-protocol":"cookie-v1","x-session-context":session.sessionContext,"x-csrf-token":session.csrfToken}};
 }
 export async function runCloud(env,importBatch,{fetcher=fetch,Rewriter=globalThis.HTMLRewriter}={}) {
@@ -112,6 +113,7 @@ export async function runCloud(env,importBatch,{fetcher=fetch,Rewriter=globalThi
   try {
     for(const source of sources) {
       if(await get(env,"cloud_enabled")!=="1") break;
+      if(env.TRIAL_MODE && !JSON.parse(await get(env,"source_links") || "[]").some(link=>link.source===source))continue;
       const encrypted=await get(env,`cloud_credential_${source}`);if(!encrypted) continue;
       const state=JSON.parse(await get(env,`cloud_state_${source}`) || "{}"),started=stamp();
       try {
