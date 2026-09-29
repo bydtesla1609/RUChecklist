@@ -17,6 +17,7 @@ function saveDraft() {
   } catch { $("draft-state").textContent="草稿保存失败，请保持此标签页打开并保存设置。"; }
 }
 chrome.storage.local.get(["boardURL","token","enabled","lastResult","lastTime","sourceURLs"]).then(data=>{
+  const trial=data.boardURL==="https://ruchecklist-trial.pages.dev";$("legacy-settings").hidden=trial;$("options-cloud").hidden=trial;$("open-board").href=data.boardURL || "https://campus-task-board.pages.dev";
   $("url").value=data.boardURL || "https://campus-task-board.pages.dev";$("token").value=data.token || "";$("enabled").checked=!!data.enabled;
   $("result").textContent=data.lastResult ? `${data.lastResult} · ${new Date(data.lastTime).toLocaleString()}` : "尚未连接";
   for(const source of Object.keys(sourceHosts)) $(source).value=data.sourceURLs?.[source] || "";

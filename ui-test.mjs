@@ -232,7 +232,7 @@ try {
       const {id,command}=event.data;
       if(command==="configure") enabled=event.data.enabled;
       if(command==="scan") window.testScanCount++;
-      window.postMessage({kind:"campus-board-reply",id,result:command==="status"?{version:"1.2.0",connected:true,enabled,sourceResults:{}}:{ok:true}},location.origin);
+      window.postMessage({kind:"campus-board-reply",id,result:command==="status"?{version:"1.5.0",connected:true,enabled,sourceResults:{}}:{ok:true}},location.origin);
     });
   });
   await page.locator("#sources-button").click();await page.waitForFunction(()=>document.getElementById("collector-state").textContent.includes("已连接"));

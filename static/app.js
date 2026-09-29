@@ -7,6 +7,8 @@ let refreshSequence = 0, lastPayload = "", toastTimer, taskCategory = "作业", 
 let draftAttachments = [], uploading = false;
 let timetables=[], courseSemester=null, courseWeek="all", courseIds=[], courseOccurrence="";
 let collectorState=null, cloudState=null, syncing=false;
+let sourceLinksState=null, boardAccount="personal", trialMode=false;
+let authMode="login", accountName="", registrationOpen=false;
 let archiveCategory="全部", archiveItems=[], archiveTotal=0, archiveSequence=0;
 let selectedDay = localInput(new Date()).slice(0,10), calendarMonth = selectedDay.slice(0,7);
 
@@ -28,18 +30,22 @@ async function api(path, method = "GET", payload, timeout = 15000) {
   let data;
   try { data = await response.json(); } catch { throw new Error("服务器暂时不可用，请稍后重试"); }
   if (!response.ok) {
-    if (response.status === 401 && path !== "/api/login") showLogin();
+    if (response.status === 401 && !["/api/login","/api/register","/api/recover","/api/recovery-code"].includes(path)) showLogin();
     throw Object.assign(new Error(data.error || "请求未完成，请重试"), {status: response.status});
   }
   return data;
 }
 function showLogin() {
+  refreshSequence++;
   $("workspace").hidden = true;
   $("login").hidden = false;
   document.querySelectorAll("dialog[open]").forEach(dialog => dialog.close());
   tasks = []; sources = []; timetables=[]; courseIds=[]; archiveItems=[]; lastPayload = "";
   $("archive-list").replaceChildren(); $("archive-detail").replaceChildren();
   $("board").replaceChildren(); $("sources-list").replaceChildren(); collectorState=null; cloudState=null;
+  sourceLinksState=null;if(trialMode)boardAccount="";
+  editing=null;deleting=null;draftTodos=[];draftAttachments=[];
+  $("task-form").reset();$("task-todos").replaceChildren();$("task-links").replaceChildren();$("task-attachments").replaceChildren();$("course-detail").replaceChildren();$("source-urls").value="";$("recovery-value").textContent="";$("account-password").value="";
 }
 function formatTime(value, includeYear = false) {
   if (!value) return "待补充时间";
@@ -570,13 +576,13 @@ window.addEventListener("message",event=>{
 function collectorCommand(command,extra={},timeout=18000) {
   return new Promise((resolve,reject)=>{
     const id=crypto.randomUUID(),timer=setTimeout(()=>{collectorRequests.delete(id);reject(new Error("此浏览器未连接新版扩展。请在 Edge 重新加载扩展，再刷新看板；手机端可查看电脑同步的结果。"));},timeout);
-    collectorRequests.set(id,{resolve,reject,timer});window.postMessage({kind:"campus-board-command",id,command,...extra},location.origin);
+    collectorRequests.set(id,{resolve,reject,timer});window.postMessage({kind:"campus-board-command",id,command,account:boardAccount,...extra},location.origin);
   });
 }
 function updateSyncControls() {
   const connected=!!collectorState?.connected;
   $("collector-controls").hidden=!collectorState || connected;
-  $("collector-install").hidden=!!collectorState;
+  $("install-state").textContent=collectorState?`已检测到 · v${collectorState.version}`:"只需安装一次";
   $("browser-settings").hidden=!connected;
   $("collector-scan").disabled=syncing || !(cloudState?.enabled || (connected && collectorState.enabled));
   $("collector-scan").textContent=syncing?"正在同步…":"立即同步";
@@ -591,24 +597,48 @@ async function checkCollector() {
     $("collector-enabled").checked=collectorState.enabled;
   }catch {
     collectorState=null;
-    $("collector-state").textContent="此浏览器未连接扩展。手机可直接查看云端同步结果。";
+    $("collector-state").textContent="此浏览器未连接扩展。手机可直接查看已同步的任务。";
   }
   updateSyncControls();renderSources();
 }
+async function loadSourceLinks() {
+  try {const data=await api("/api/source-links");sourceLinksState=data.links;$("source-urls").value=data.links.map(link=>link.url).join("\n");renderSources();}
+  catch(error){$("source-links-result").textContent=error.message;}
+}
+$("source-links-form").onsubmit=async event=>{
+  event.preventDefault();$("save-source-links").disabled=true;
+  try {
+    const data=await api("/api/source-links","PUT",{urls:$("source-urls").value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean)});
+    sourceLinksState=data.links;renderSources();
+    const unsupported=data.links.filter(link=>!link.source).length;
+    $("source-links-result").textContent=`已保存 ${data.links.length} 个链接${unsupported?`，其中 ${unsupported} 个网站暂未适配，可从下方打开后手动添加任务`:"，可继续第 4 步"}。`;
+  }catch(error){$("source-links-result").textContent=error.message;}
+  finally{$("save-source-links").disabled=false;}
+};
+$("collector-recheck").onclick=async()=>{
+  await checkCollector();
+  if(collectorState)$("guide-install").open=false;
+  else {sessionStorage.setItem("resume-setup","1");location.reload();}
+};
+$("copy-extension-page").onclick=async()=>{try{await navigator.clipboard.writeText("edge://extensions");notice("已复制，请粘贴到 Edge 地址栏打开");}catch{notice("请手动复制 edge://extensions 到地址栏");}};
 $("collector-connect").onclick=async()=>{
   $("collector-connect").disabled=true;$("source-error").textContent="";
   try {
     await collectorCommand("status",{},1800);
     const {token}=await api("/api/collector-token","POST",{});
     await collectorCommand("pair",{token});await checkCollector();
-    await collectorCommand("scan");notice("已连接，正在读取作业。请确认三个网站已登录。");
+    $("guide-install").open=false;notice("已连接，请在第 3 步保存自己的作业页面链接。");
   }catch(error){$("source-error").textContent=error.message;}finally{$("collector-connect").disabled=false;}
 };
 $("collector-scan").onclick=async()=>{
   syncing=true;updateSyncControls();$("source-error").textContent="";
   try {
     if(cloudState?.enabled) {await api("/api/cloud/run","POST",{},60000);await refresh();await checkCloud();}
-    else {await collectorCommand("scan");notice("已开始读取作业，结果会显示在下方。");}
+    else {
+      if((collectorState?.version || "0").localeCompare("1.5.0",undefined,{numeric:true})<0)throw new Error("请按第 1 步更新扩展至 v1.5.0，再刷新网页，才能使用网页中的链接配置。");
+      if(!sourceLinksState?.some(link=>link.source))throw new Error("请先在第 3 步保存一个已适配网站的作业链接。");
+      await collectorCommand("scan");notice("已打开保存的页面，结果会显示在下方。");
+    }
   }catch(error){$("source-error").textContent=error.message;}
   finally{syncing=false;updateSyncControls();}
 };
@@ -627,7 +657,8 @@ $("collector-options").onclick=$("cloud-authorize").onclick=()=>collectorCommand
 async function checkCloud() {
   try {
     cloudState=await api("/api/cloud");
-    $("cloud-status").textContent=cloudState.enabled?"云端自动同步已开启 · 每 15 分钟":"云端未启用 · 使用电脑扩展导入";
+    $("cloud-status").textContent=cloudState.enabled?"云端自动同步已开启 · 每 15 分钟":"电脑 Edge 打开时自动检查 · 每 15 分钟";
+    $("cloud-settings").hidden=trialMode;
     updateSyncControls();renderSources();
   }catch(error){$("cloud-status").textContent=error.message;}
 }
@@ -636,7 +667,11 @@ $("cloud-revoke").onclick=async()=>{
   try{await api("/api/cloud","DELETE");await checkCloud();}catch(error){$("source-error").textContent=error.message;}
 };
 function renderSources() {
-  $("sources-list").replaceChildren(...sources.map(source=>{
+  const selected=new Set((sourceLinksState || []).map(link=>link.source));
+  if(selected.has("ruc_courses"))selected.add("ruc_exams");
+  $("academic-controls").hidden=!selected.has("ruc_courses");
+  $("unsupported-links").replaceChildren(...(sourceLinksState || []).filter(link=>!link.source).map(link=>{const row=element("p",null,"hint");row.append(externalLink(`${link.name} ↗`,link.url),document.createTextNode(" · 尚未适配，请手动添加任务"));return row;}));
+  $("sources-list").replaceChildren(...sources.filter(source=>sourceLinksState===null || selected.has(source.id)).map(source=>{
     const row=element("div",null,"source-row"),header=element("div");
     const academic=source.kind==="academic";
     const cloud=!academic && cloudState?.enabled?cloudState.sources?.[source.id]:null;
@@ -646,7 +681,7 @@ function renderSources() {
     const error=!academic && cloudState?.enabled ? cloud?.error : (local?.error && (!seen || Date.parse(local.time)>Date.parse(seen)) ? local.error:source.error);
     const incomplete=!academic && (cloud?.last_success ? cloud.status_count<cloud.count : source.imported_count>source.status_count);
     const label=error?"需处理":incomplete?"状态不完整":fresh?"已同步":seen?"等待更新":"待连接";
-    header.append(externalLink(`${source.name} ↗`,source.url),element("span",label,"state"+(fresh && !error && !incomplete?" connected":"")));
+    header.append(externalLink(`${source.name} ↗`,sourceLinksState?.find(link=>link.source===source.id)?.url || source.url),element("span",label,"state"+(fresh && !error && !incomplete?" connected":"")));
     row.append(header);
     const total=cloud?.last_success?cloud.count:source.task_count;
     row.append(element("p",error || (seen?`${formatTime(seen)} · ${total} 项${academic?"日程":"作业"}${incomplete?" · 部分完成状态未识别":""}`:cloud?.authorized?"授权已保存，等待同步":"请连接扩展并登录此网站")));
@@ -715,7 +750,7 @@ $("add-menu").replaceChildren(...CATEGORIES.map(category => {
 document.addEventListener("click", event => { if (!event.target.closest(".add-control") && !event.target.closest(".empty")) closeAddMenu(); });
 document.addEventListener("keydown", event => { if (event.key === "Escape" && !$("add-menu").hidden) { closeAddMenu(); $("add-task").focus(); } });
 $("add-task").onclick = startAdd;
-$("sources-button").onclick = () => { renderSources(); $("sources-dialog").showModal(); $("source-error").textContent=""; checkCollector(); checkCloud(); };
+$("sources-button").onclick = () => { renderSources(); $("sources-dialog").showModal(); $("source-error").textContent=""; loadSourceLinks();checkCollector().then(()=>{$("guide-install").open=!collectorState;}); checkCloud(); };
 document.querySelectorAll(".close-dialog").forEach(button => button.onclick = () => {const dialog=button.closest("dialog");if(dialog.id==="course-dialog" && hasDraft()){notice("请先保存或取消待办输入");return;}dialog.close();});
 $("course-dialog").addEventListener("cancel",event=>{if(hasDraft()){event.preventDefault();notice("请先保存或取消待办输入");}});
 $("task-form").onsubmit = async event => {
@@ -752,13 +787,50 @@ $("confirm-delete").onclick = async () => {
   catch (error) { notice(error.message); }
   finally { $("confirm-delete").disabled = false; }
 };
+function setAuthMode(mode) {
+  authMode=mode;$("invite-field").hidden=mode!=="register";$("recovery-field").hidden=mode!=="recover";
+  $("invite-code").required=mode==="register";$("recovery-code").required=mode==="recover";
+  $("password").autocomplete=mode==="login"?"current-password":"new-password";
+  $("password-label").textContent=mode==="recover"?"新密码（至少 12 位）":"密码（至少 12 位）";
+  document.querySelector("#login-form button[type=submit]").textContent=mode==="register"?"创建我的账号":mode==="recover"?"重设密码":"登录看板";
+  $("login-error").textContent="";
+}
+function configureAccount(data) {
+  trialMode=!!data.trial;boardAccount=data.account || (trialMode?"":"personal");accountName=data.username || accountName;registrationOpen=!!data.registration_open;
+  $("trial-auth").hidden=!trialMode;$("auth-recover").hidden=!trialMode;$("account-button").hidden=!trialMode;$("trial-privacy").hidden=!trialMode;
+  $("username").required=trialMode;$("password").minLength=trialMode?12:0;
+  if(trialMode){setAuthMode("login");$("auth-register").disabled=!registrationOpen;$("trial-notice").textContent=registrationOpen?"30 人邀请试用 · 免费":"试用版准备中，暂未开放注册";$("file-limit-hint").textContent="单个文件 ≤ 1 MB · 每人 5 MB";}
+}
+function showRecovery(code) {
+  $("account-dialog").close();$("recovery-value").textContent=code;$("recovery-done").disabled=true;$("recovery-dialog").showModal();
+}
+$("auth-login").onclick=()=>setAuthMode("login");$("auth-register").onclick=()=>setAuthMode("register");$("auth-recover").onclick=()=>setAuthMode("recover");
+$("recovery-dialog").addEventListener("cancel",event=>{if($("recovery-done").disabled)event.preventDefault();});
+$("download-recovery").onclick=()=>{
+  const url=URL.createObjectURL(new Blob([`RUChecklist\n网站：${location.origin}\n用户名：${accountName}\n恢复码：${$("recovery-value").textContent}\n请勿分享此文件。\n`],{type:"text/plain;charset=utf-8"}));
+  const link=element("a");link.href=url;link.download="RUChecklist-账号恢复码.txt";link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);$("recovery-done").disabled=false;
+};
+$("recovery-done").onclick=()=>{$("recovery-dialog").close();$("recovery-value").textContent="";};
+$("account-button").onclick=()=>{$("account-name").textContent=`用户名：${accountName}`;$("account-password").value="";$("account-error").textContent="";$("account-dialog").showModal();};
+$("recovery-form").onsubmit=async event=>{event.preventDefault();event.submitter.disabled=true;try{const result=await api("/api/recovery-code","POST",{password:$("account-password").value});$("account-password").value="";showRecovery(result.recovery);}catch(error){$("account-error").textContent=error.message;}finally{event.submitter.disabled=false;}};
 $("login-form").onsubmit = async event => {
   event.preventDefault(); const button = event.submitter; button.disabled = true; $("login-error").textContent = "";
-  try { await api("/api/login", "POST", {password: $("password").value}); $("password").value = ""; await refresh(); }
+  try {
+    const result=await api(trialMode?`/api/${authMode==="register"?"register":authMode==="recover"?"recover":"login"}`:"/api/login", "POST", {password: $("password").value,...(trialMode?{username:$("username").value,invite:$("invite-code").value.trim(),recovery:$("recovery-code").value.trim()}:{})},30000);
+    $("password").value="";$("invite-code").value="";$("recovery-code").value="";
+    if(trialMode){boardAccount=result.account;accountName=result.username;}
+    await refresh();if(result.recovery)showRecovery(result.recovery);
+  }
   catch (error) { $("login-error").textContent = error.message; }
   finally { button.disabled = false; }
 };
 $("logout").onclick = async () => { try { await api("/api/logout", "POST", {}); showLogin(); } catch(error) { notice(error.message); } };
 document.addEventListener("visibilitychange", () => { if (!document.hidden && !$("workspace").hidden) refresh(); });
-setInterval(() => { if (!document.hidden && !$("workspace").hidden && !document.activeElement.matches("#board input, #board select")) refresh(); }, 6000);
-api("/api/session").then(data => data.authenticated ? refresh() : showLogin()).catch(() => { showLogin(); $("login-error").textContent = "服务器暂时无法连接，请刷新重试"; });
+let lastPoll=0;
+setInterval(() => { if (!document.hidden && !$("workspace").hidden && !document.activeElement.matches("#board input, #board select") && Date.now()-lastPoll>=(trialMode?60000:6000)) {lastPoll=Date.now();refresh();} }, 6000);
+api("/api/session").then(async data => {
+  configureAccount(data);
+  if(!data.authenticated)return showLogin();
+  await refresh();
+  if(sessionStorage.getItem("resume-setup")){sessionStorage.removeItem("resume-setup");$("sources-button").click();}
+}).catch(() => { showLogin(); $("login-error").textContent = "服务器暂时无法连接，请刷新重试"; });

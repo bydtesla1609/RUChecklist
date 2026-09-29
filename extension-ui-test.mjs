@@ -30,6 +30,7 @@ try {
   async function openSettings() {
     const page=await context.newPage();await page.goto(optionsURL);
     await page.waitForFunction(()=>document.getElementById("url").value!=="");
+    await page.locator("#legacy-settings > summary").click();
     return page;
   }
   let page=await openSettings();
@@ -38,7 +39,7 @@ try {
   const other=await context.newPage();await other.bringToFront();await page.bringToFront();
   assert.equal(await page.locator("#url").inputValue(),"https://example.com/my-board");
   await page.locator("#token").fill("synthetic-pair-code-for-test-only");
-  await page.locator("summary").click();
+  await page.locator("#settings details summary").click();
   await page.locator("#smartestu").fill("https://smartestu.cn/assignment?tab=assignments");
   await page.locator("#enabled").check();await page.close();
   page=await openSettings();
@@ -48,7 +49,7 @@ try {
   assert.equal(await page.locator("#enabled").isChecked(),true);
   assert.match(await page.locator("#draft-state").textContent(),/已恢复/);
   assert.deepEqual(await page.evaluate(()=>chrome.storage.local.get([])),{});
-  await page.reload();await page.waitForFunction(()=>document.getElementById("token").value!=="");
+  await page.reload();await page.locator("#legacy-settings > summary").click();await page.waitForFunction(()=>document.getElementById("token").value!=="");
   assert.equal(await page.locator("#token").inputValue(),"synthetic-pair-code-for-test-only");
   await page.getByRole("button",{name:"保存设置",exact:true}).click();
   await page.waitForFunction(()=>document.getElementById("result").textContent.includes("需要允许"));

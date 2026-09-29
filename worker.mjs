@@ -14,6 +14,22 @@ function configuredSources(env) {
     return [id,{...source,url:url.protocol==="https:" && url.hostname===new URL(source.url).hostname && !url.username && !url.password ? url.href : source.url}];
   }));
 }
+export function sourceLinks(values) {
+  if(!Array.isArray(values) || values.length>12)fail(400,"最多保存 12 个网站链接");
+  const unique=new Set();
+  return values.map(value=>{
+    const url=new URL(webURL(value,"作业页面链接"));
+    if(url.protocol!=="https:")fail(400,"请填写 HTTPS 作业页面链接");
+    const host=url.hostname;
+    const source=host==="smartestu.cn"?"smartestu":host==="www.ketangpai.com"?"ketangpai":/(^|\.)chaoxing\.com$/.test(host)?"chaoxing":host==="jw.ruc.edu.cn"?"ruc_courses":null;
+    return {url:url.href,source,name:source?SOURCES[source].name:host};
+  }).filter(link=>{if(unique.has(link.url))return false;unique.add(link.url);return true;});
+}
+async function savedLinks(env) {
+  const saved=await env.DB.prepare("SELECT value FROM settings WHERE key='source_links'").first();
+  if(saved)return JSON.parse(saved.value);
+  return env.TRIAL_MODE?[]:sourceLinks(Object.values(configuredSources(env)).filter(source=>!source.kind || source.name==="人大课表").map(source=>source.url));
+}
 const CATEGORIES = ["作业", "课程", "考试", "活动", "会议"];
 const STATUSES = ["todo", "doing", "done"];
 const FIELDS = ["category", "title", "content", "location", "todos", "links", "attachments", "due_at", "starts_at", "ends_at", "status", "details"];
@@ -116,6 +132,7 @@ async function importTasks(request, db, sources) {
   await collectorAuth(request,db);
   const payload=await body(request);
   if(payload.academic!==undefined) {
+    if(sources.trial)fail(400,"试用版请更新扩展后分批同步课表");
     if(payload.source!=="ruc_courses")fail(400,"课表数据来源不匹配");
     return json(await importCourseInput(payload.academic,db,sources));
   }
@@ -195,15 +212,15 @@ async function applyAcademicImport({source,tasks,error,task_count=tasks.length},
   ]);
   return {changed:results[0].meta.changes};
 }
-async function uploadFile(request,db) {
+async function uploadFile(request,db,fileLimit=FILE_LIMIT,storageLimit=STORAGE_LIMIT) {
   const contentType=request.headers.get("Content-Type") || "";
   if(!contentType.startsWith("multipart/form-data;")) fail(400,"请上传文件");
-  if(Number(request.headers.get("Content-Length"))>FILE_LIMIT+65536) fail(413,"单个附件最多 10 MB");
-  const bytes=await readLimited(request,FILE_LIMIT+65536);
+  if(Number(request.headers.get("Content-Length"))>fileLimit+65536) fail(413,`单个附件最多 ${fileLimit/1024/1024} MB`);
+  const bytes=await readLimited(request,fileLimit+65536);
   let form; try { form=await new Response(bytes,{headers:{"Content-Type":contentType}}).formData(); } catch { fail(400,"文件上传格式不正确"); }
   const file=form.get("file");
   if(!file || typeof file.arrayBuffer!=="function" || form.getAll("file").length!==1) fail(400,"每次上传一个文件");
-  if(!file.size || file.size>FILE_LIMIT) fail(413,"附件不能为空，单个文件最多 10 MB");
+  if(!file.size || file.size>fileLimit) fail(413,`附件不能为空，单个文件最多 ${fileLimit/1024/1024} MB`);
   const data=new Uint8Array(await file.arrayBuffer());
   const name=(file.name || "附件").normalize("NFC").replace(/[\x00-\x1f\x7f/\\]/g,"_").slice(0,200);
   const head=new TextDecoder("latin1").decode(data.slice(0,12));
@@ -216,12 +233,12 @@ async function uploadFile(request,db) {
   // ponytail: small personal files share D1; move binaries to R2 above the 100 MB cap.
   await db.prepare("DELETE FROM files WHERE created_at<? AND id NOT IN (SELECT value FROM tasks,json_each(tasks.attachments) WHERE tasks.deleted=0)").bind(new Date(Date.now()-86400000).toISOString()).run();
   const id=crypto.randomUUID();
-  const statements=[db.prepare("INSERT INTO files(id,name,type,size,created_at) SELECT ?,?,?,?,? WHERE (SELECT coalesce(sum(size),0) FROM files)+?<=?").bind(id,name,type,file.size,now(),file.size,STORAGE_LIMIT)];
+  const statements=[db.prepare("INSERT INTO files(id,name,type,size,created_at) SELECT ?,?,?,?,? WHERE (SELECT coalesce(sum(size),0) FROM files)+?<=?").bind(id,name,type,file.size,now(),file.size,storageLimit)];
   for(let offset=0,part=0;offset<data.length;offset+=CHUNK_SIZE,part++) {
     statements.push(db.prepare("INSERT INTO file_chunks(file_id,part,data) SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM files WHERE id=?)").bind(id,part,data.slice(offset,offset+CHUNK_SIZE).buffer,id));
   }
   const result=await db.batch(statements);
-  if(result[0].meta.changes!==1) fail(413,"附件空间已满（100 MB），请移除不需要的附件后稍后重试");
+  if(result[0].meta.changes!==1) fail(413,`附件空间已满（${storageLimit/1024/1024} MB），请移除不需要的附件后稍后重试`);
   return json({id,name,type,size:file.size},201);
 }
 async function downloadFile(request,db,id) {
@@ -266,7 +283,7 @@ async function route(request, env) {
   if(!db || !env.BOARD_PASSWORD_HASH) fail(503,"看板尚未完成部署配置");
   if(!["GET","HEAD"].includes(method)) {
     const origin=request.headers.get("Origin");
-    if(!["/api/import","/api/cloud-authorize","/api/cloud-credentials"].includes(path) && ((origin && origin!==url.origin) || request.headers.get("Sec-Fetch-Site")==="cross-site")) fail(403,"不允许跨站请求");
+    if(!["/api/import","/api/academic/timetable","/api/cloud-authorize","/api/cloud-credentials"].includes(path) && ((origin && origin!==url.origin) || request.headers.get("Sec-Fetch-Site")==="cross-site")) fail(403,"不允许跨站请求");
   }
   if(path==="/api/login" && method==="POST") {
     const data=await body(request);
@@ -285,14 +302,24 @@ async function route(request, env) {
     ]);
     return json({ok:true},200,{"Set-Cookie":cookie(request,token,30*86400)});
   }
-  if(path==="/api/import" && method==="POST") return importTasks(request,db,configuredSources(env));
-  if(path==="/api/collector-config" && method==="GET") { await collectorAuth(request,db); return json({sources:configuredSources(env),cloud_enabled:(await cloudStatus(env)).enabled}); }
+  if(path==="/api/import" && method==="POST") return importTasks(request,db,{...configuredSources(env),...(env.TRIAL_MODE?{trial:true}:{})});
+  if(path==="/api/academic/timetable" && method==="POST") {
+    await collectorAuth(request,db);const input=globalThis.RUAcademic.courseInput((await body(request)).academic),table=globalThis.RUAcademic.timetable(input);
+    await db.prepare("INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE settings.value IS NOT excluded.value").bind(`timetable:${input.semester}`,JSON.stringify(table)).run();return json({ok:true});
+  }
+  if(path==="/api/collector-config" && method==="GET") { await collectorAuth(request,db); return json({sources:configuredSources(env),links:await savedLinks(env),account:env.TRIAL_USER || "personal",cloud_enabled:env.TRIAL_MODE?false:(await cloudStatus(env)).enabled}); }
   if(path==="/api/cloud-authorize" && method==="POST") {await collectorAuth(request,db);return json(await enableCloud(env));}
   if(path==="/api/cloud-credentials" && method==="POST") {await collectorAuth(request,db);const value=await body(request);return json(await saveCloudRecipe(env,value.source,value.recipe));}
   const hash=await sessionHash(request);
-  const authenticated=!!(await db.prepare("SELECT 1 FROM sessions WHERE hash=? AND expires>?").bind(hash,Date.now()).first());
+  const authenticated=env.TRIAL_AUTHENTICATED===true || !!(await db.prepare("SELECT 1 FROM sessions WHERE hash=? AND expires>?").bind(hash,Date.now()).first());
   if(path==="/api/session" && method==="GET") return json({authenticated});
   if(!authenticated) fail(401,"请先登录看板");
+  if(path==="/api/source-links" && method==="GET")return json({links:await savedLinks(env)});
+  if(path==="/api/source-links" && method==="PUT") {
+    const links=sourceLinks((await body(request)).urls);
+    await db.prepare("INSERT INTO settings(key,value) VALUES ('source_links',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(JSON.stringify(links)).run();
+    return json({links});
+  }
   if(path==="/api/cloud" && method==="GET") return json(await cloudStatus(env));
   if(path==="/api/cloud" && method==="DELETE") return json(await revokeCloud(env));
   if(path==="/api/cloud/run" && method==="POST") return json(await runCloud(env,payload=>applyImport(payload,db,configuredSources(env))));
@@ -306,7 +333,7 @@ async function route(request, env) {
     const snapshot=JSON.parse(saved.value);if(Date.now()-Date.parse(snapshot.captured_at)>86400000)fail(400,"保存的课表数据已超过一天，请重新同步教务");
     return json(await importCourseInput(snapshot.input,db,configuredSources(env)));
   }
-  if(path==="/api/files" && method==="POST") return uploadFile(request,db);
+  if(path==="/api/files" && method==="POST") return uploadFile(request,db,env.TRIAL_MODE?1024*1024:FILE_LIMIT,env.TRIAL_MODE?5*1024*1024:STORAGE_LIMIT);
   const fileMatch=path.match(/^\/api\/files\/([a-zA-Z0-9-]{1,50})$/);
   if(fileMatch && ["GET","HEAD"].includes(method)) return downloadFile(request,db,fileMatch[1]);
   if(path==="/api/logout" && method==="POST") {
@@ -319,7 +346,7 @@ async function route(request, env) {
     const configuration=configuredSources(env);
     const byId=new Map(files.results.map(file=>[file.id,file]));
     const tables=await db.prepare("SELECT value FROM settings WHERE key LIKE 'timetable:%'").all();
-    return json({tasks:tasks.results.map(task=>expose(task,byId)),timetables:tables.results.map(row=>JSON.parse(row.value)),sources:sources.results.map(source=>({...source,...configuration[source.id]})),storage:{used:storage.results[0].used,limit:STORAGE_LIMIT,file_limit:FILE_LIMIT},server_time:now()});
+    return json({tasks:tasks.results.map(task=>expose(task,byId)),timetables:tables.results.map(row=>JSON.parse(row.value)),sources:sources.results.map(source=>({...source,...configuration[source.id]})),storage:{used:storage.results[0].used,limit:env.TRIAL_MODE?5*1024*1024:STORAGE_LIMIT,file_limit:env.TRIAL_MODE?1024*1024:FILE_LIMIT},server_time:now()});
   }
   if(path==="/api/archive" && method==="GET") {
     const category=url.searchParams.get("category") || "全部", offset=Number(url.searchParams.get("offset") || 0);

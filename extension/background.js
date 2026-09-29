@@ -2,7 +2,8 @@ const SOURCES={smartestu:"https://smartestu.cn/assignment",ketangpai:"https://ww
 SOURCES.ruc_courses="https://jw.ruc.edu.cn/Njw2017/index.html#/student/student-course-list/";
 SOURCES.ruc_exams="https://jw.ruc.edu.cn/Njw2017/index.html#/student/test-arrange-search/";
 const BOARD_ORIGIN="https://campus-task-board.pages.dev";
-if(typeof importScripts==="function") importScripts("cloud-routes.js");
+const BOARD_ORIGINS=[BOARD_ORIGIN,"https://ruchecklist-trial.pages.dev"];
+if(typeof importScripts==="function") importScripts("cloud-routes.js","academic-parser.js");
 function sourceFor(url) {
   const host=new URL(url).hostname;
   if(host==="jw.ruc.edu.cn") {
@@ -57,16 +58,23 @@ async function reportError(error,source) {
 async function upload(message,sender) {
   const source=sourceFor(sender.url);
   if(!source || source!==message.source) throw new Error("来源不匹配");
-  const {boardURL,token,enabled,importCache={},sourceResults={}}=await chrome.storage.local.get(["boardURL","token","enabled","importCache","sourceResults"]);
+  const {boardURL,token,enabled,configuredSources,importCache={},sourceResults={}}=await chrome.storage.local.get(["boardURL","token","enabled","configuredSources","importCache","sourceResults"]);
   if(!enabled || !boardURL || !token) return {skipped:true};
-  if(source==="ruc_courses" && message.academic) {
+  if(Array.isArray(configuredSources) && !configuredSources.includes(source))return {skipped:true};
+  if(source==="ruc_courses" && message.academic && boardURL!=="https://ruchecklist-trial.pages.dev") {
     const response=await fetch(`${boardURL}/api/import`,{method:"POST",credentials:"omit",headers:{"Content-Type":"application/json",Authorization:`Bearer ${token}`},body:JSON.stringify({source,academic:message.academic}),signal:AbortSignal.timeout(45000)});
     const data=await response.json();if(!response.ok || data.error)throw new Error(data.error || "课表导入失败");
     const time=new Date().toISOString();sourceResults[source]={time,count:data.count,changed:data.changed,error:null};
     await chrome.storage.local.set({sourceResults,lastResult:`已读取 ${data.count} 个课次 · 更新 ${data.changed} 项`,lastTime:time});
     await chrome.action.setBadgeText({text:Object.values(sourceResults).some(value=>value.error)?"!":""});return data;
   }
-  const tasks=message.tasks;
+  let tasks=message.tasks;
+  if(source==="ruc_courses" && message.academic) {
+    const input=RUAcademic.courseInput(message.academic);
+    tasks=RUAcademic.courses(input.rows,input.calendar,input.models,input.semester,input.semester_label);
+    const response=await fetch(`${boardURL}/api/academic/timetable`,{method:"POST",credentials:"omit",headers:{"Content-Type":"application/json",Authorization:`Bearer ${token}`},body:JSON.stringify({academic:input}),signal:AbortSignal.timeout(15000)});
+    if(!response.ok)throw new Error("课表节次保存失败，请重新同步");
+  }
   if(!Array.isArray(tasks) || tasks.length>3000 || tasks.some(task=>!task || typeof task.external_id!=="string")) throw new Error("任务列表格式不正确");
   const cache=importCache[source] || {},changedTasks=tasks.filter(task=>cache[task.external_id]!==JSON.stringify(task));
   const batches=[];for(let i=0;i<changedTasks.length;i+=30) batches.push(changedTasks.slice(i,i+30));
@@ -90,18 +98,23 @@ async function performScan(force=false,academicOnly=false) {
   if(!enabled && !force) throw new Error("自动同步已暂停，请先开启同步");
   const response=await fetch(`${boardURL}/api/collector-config`,{headers:{Authorization:`Bearer ${token}`},credentials:"omit",signal:AbortSignal.timeout(15000)});
   if(!response.ok) throw new Error("无法读取作业来源，请重新连接看板");
-  const configuration=(await response.json()).sources;
-  for(const [source,fallback] of Object.entries(SOURCES)) {
-    if(academicOnly && !source.startsWith("ruc_"))continue;
-    const candidate=new URL(sourceURLs[source] || configuration?.[source]?.url || fallback);
+  const config=await response.json(),configuration=config.sources;
+  const entries=config.links===undefined?Object.entries(SOURCES).map(([source,url])=>({source,url:sourceURLs[source] || configuration?.[source]?.url || url})):
+    config.links.filter(link=>link.source).flatMap(link=>link.source==="ruc_courses"?[{source:"ruc_courses",url:SOURCES.ruc_courses},{source:"ruc_exams",url:SOURCES.ruc_exams}]:[link]);
+  const selected=[...new Map(entries.filter(link=>!academicOnly || link.source.startsWith("ruc_")).map(link=>[link.url,link])).values()];
+  if(!selected.length)throw new Error("请在网页的第 3 步保存已适配网站的链接");
+  await chrome.storage.local.set({configuredSources:[...new Set(entries.map(link=>link.source))]});
+  for(const [index,{source,url:address}] of selected.entries()) {
+    const candidate=new URL(address);
     if(candidate.protocol!=="https:" || candidate.username || candidate.password || sourceFor(candidate.href)!==source) throw new Error(`${source} 作业页地址不正确`);
     const url=candidate.href;
-    let tab;try{if(managedTabs[source]) tab=await chrome.tabs.get(managedTabs[source]);}catch{}
+    const key=config.links===undefined?source:`${source}:${index}`;
+    let tab;try{if(managedTabs[key]) tab=await chrome.tabs.get(managedTabs[key]);}catch{}
     if(tab && !tab.active && tab.url && sourceFor(tab.url)===source) {
-      if(source==="chaoxing") await chrome.tabs.update(tab.id,{url});
+      if(source==="chaoxing" || tab.url!==url) await chrome.tabs.update(tab.id,{url});
       else await chrome.tabs.reload(tab.id);
     }else {
-      const created=await chrome.tabs.create({url:"about:blank",active:false});managedTabs[source]=created.id;
+      const created=await chrome.tabs.create({url:"about:blank",active:false});managedTabs[key]=created.id;
       await chrome.storage.local.set({managedTabs});await chrome.tabs.update(created.id,{url});
     }
   }
@@ -113,16 +126,23 @@ async function configure() {
   if(enabled) await chrome.alarms.create("collect",{periodInMinutes:15});return {ok:true};
 }
 async function boardControl(message,sender) {
-  if(!sender.tab || sender.frameId!==0 || new URL(sender.url).origin!==BOARD_ORIGIN) throw new Error("不允许此网页控制导入扩展");
+  const origin=new URL(sender.url).origin;
+  if(!sender.tab || sender.frameId!==0 || !BOARD_ORIGINS.includes(origin)) throw new Error("不允许此网页控制导入扩展");
   if(message.command==="options") {await chrome.runtime.openOptionsPage();return {ok:true};}
   if(message.command==="pair") {
     if(typeof message.token!=="string" || !/^[A-Za-z0-9_-]{20,100}$/.test(message.token)) throw new Error("配对码格式不正确");
-    const response=await fetch(`${BOARD_ORIGIN}/api/collector-config`,{credentials:"omit",headers:{Authorization:`Bearer ${message.token}`},signal:AbortSignal.timeout(15000)});
+    const response=await fetch(`${origin}/api/collector-config`,{credentials:"omit",headers:{Authorization:`Bearer ${message.token}`},signal:AbortSignal.timeout(15000)});
     if(!response.ok) throw new Error("配对码已失效，请重新连接");
-    await chrome.storage.local.set({boardURL:BOARD_ORIGIN,token:message.token,enabled:true,importCache:{}});await configure();
+    const configuration=await response.json();
+    if(message.account && (configuration.account || "personal")!==message.account)throw new Error("配对码不属于当前账号，请刷新网页重试");
+    await queue;await cloudQueue;
+    const previous=await chrome.storage.local.get(["boardURL","account"]);
+    const changed=previous.boardURL!==origin || (previous.account || "personal")!==(configuration.account || "personal");
+    const configured=(configuration.links || Object.keys(SOURCES).map(source=>({source}))).flatMap(link=>link.source==="ruc_courses"?["ruc_courses","ruc_exams"]:link.source?[link.source]:[]);
+    await chrome.storage.local.set({boardURL:origin,account:configuration.account || "personal",token:message.token,enabled:true,configuredSources:configured,importCache:{},sourceResults:{},managedTabs:{},sourceURLs:{},...(changed?{cloudEnabled:false,cloudRecipeCache:{},cloudSourceResults:{}}:{})});await configure();
   }
-  const data=await chrome.storage.local.get(["boardURL","token","enabled","sourceResults","lastResult"]);
-  const connected=data.boardURL===BOARD_ORIGIN && !!data.token;
+  const data=await chrome.storage.local.get(["boardURL","token","enabled","sourceResults","lastResult","account"]);
+  const connected=data.boardURL===origin && !!data.token && (data.account || "personal")===(message.account || "personal");
   if(message.command==="status" || message.command==="pair") return {version:chrome.runtime.getManifest().version,connected,enabled:!!data.enabled,sourceResults:connected?data.sourceResults || {}:{},lastResult:connected?data.lastResult || "":""};
   if(!connected) throw new Error("请先在此看板连接扩展");
   if(message.command==="configure") {

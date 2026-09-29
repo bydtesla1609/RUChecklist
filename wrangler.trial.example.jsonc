@@ -1,0 +1,7 @@
+{
+  "name": "ruchecklist-trial",
+  "pages_build_output_dir": "./dist/trial",
+  "compatibility_date": "2026-05-15",
+  "vars": {"REGISTRATION_OPEN": "false"},
+  "d1_databases": [{"binding": "DB", "database_name": "ruchecklist-trial", "database_id": "REPLACE_WITH_TRIAL_DATABASE_ID"}]
+}

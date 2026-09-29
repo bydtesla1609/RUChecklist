@@ -13,8 +13,11 @@
   <form id="login-form" class="login-card">
     <div class="brand-icon" aria-hidden="true"><img src="/static/icon.svg" alt="" width="56" height="56"></div><p class="eyebrow">RUChecklist</p><h1>你的大学，有序发生。</h1>
     <p class="muted">电脑与手机，使用同一个看板。</p>
-    <label for="password">访问密码</label><input id="password" type="password" autocomplete="current-password" required>
+    <div id="trial-auth" hidden><p id="trial-notice" class="hint">30 人邀请试用 · 免费</p><div class="auth-tabs"><button id="auth-login" type="button" class="secondary">登录</button><button id="auth-register" type="button" class="text-button">邀请码注册</button></div><label for="username">用户名</label><input id="username" autocomplete="username" minlength="3" maxlength="24" placeholder="3–24 位字母、数字或下划线"><div id="invite-field" hidden><label for="invite-code">邀请码</label><input id="invite-code" autocomplete="off" spellcheck="false"></div><div id="recovery-field" hidden><label for="recovery-code">账号恢复码</label><input id="recovery-code" autocomplete="off" spellcheck="false"></div></div>
+    <label id="password-label" for="password">访问密码</label><input id="password" type="password" autocomplete="current-password" required>
+    <p id="trial-privacy" class="hint" hidden>账户认证由 Supabase 处理，任务保存在 Cloudflare。试用版不上传教学网站 Cookie；每人 5 MB 附件空间，单个附件 1 MB。注册后请下载恢复码，忘记密码可用它重设。</p>
     <p id="login-error" class="error" role="alert"></p><button type="submit" class="primary">进入看板 <span aria-hidden="true">→</span></button>
+    <button id="auth-recover" type="button" class="text-button" hidden>忘记密码？使用恢复码</button>
     <p class="hint">一个空间，装下学习与生活。</p>
   </form>
 </section>
@@ -22,7 +25,7 @@
   <aside class="sidebar">
     <a class="brand" href="/" aria-label="RUChecklist首页"><span class="brand-icon" aria-hidden="true"><img src="/static/icon.svg" alt="" width="56" height="56"></span><span class="wordmark"><b>RU</b>Checklist<small>YOUR CAMPUS, IN CHECK.</small></span></a>
     <p class="nav-heading">我的任务</p><nav id="categories" aria-label="任务分类"></nav>
-    <div class="sidebar-bottom"><button id="archive-button" class="nav-button" aria-label="归档处">▤ <span>归档处</span></button><button id="sources-button" class="nav-button">↻ <span>来源与同步</span></button><button id="logout" class="nav-button">↗ <span>退出登录</span></button></div>
+    <div class="sidebar-bottom"><button id="archive-button" class="nav-button" aria-label="归档处">▤ <span>归档处</span></button><button id="sources-button" class="nav-button">↻ <span>来源与同步</span></button><button id="account-button" class="nav-button" hidden>⚙ <span>账号与恢复码</span></button><button id="logout" class="nav-button">↗ <span>退出登录</span></button></div>
   </aside>
   <main>
     <section class="heading"><div><h1 id="view-title">总览</h1></div><div class="add-control"><button id="add-task" class="primary" aria-expanded="false"><span aria-hidden="true">＋</span> 添加任务</button><div id="add-menu" class="add-menu" hidden aria-label="选择任务板块"></div></div></section>
@@ -39,7 +42,7 @@
     <label for="task-location">地点 <span class="optional">选填</span></label><input id="task-location" maxlength="300" placeholder="例如：明德楼 302 / 图书馆 / 线上">
     <div id="schedule-fields" hidden><label for="schedule-person" id="schedule-person-label">教师</label><input id="schedule-person" maxlength="300" placeholder="选填"><label for="schedule-seat">座位号 <span class="optional">选填</span></label><input id="schedule-seat" maxlength="300"></div><div class="field-heading"><span>待办事项 <span class="optional">选填</span></span><span class="hint">拖动 ⋮⋮ 排序</span></div>
     <div id="task-todos"></div>
-    <div class="resource-heading"><span>附件 <span class="optional">选填</span></span><span class="hint">单个文件 ≤ 10 MB</span></div>
+    <div class="resource-heading"><span>附件 <span class="optional">选填</span></span><span id="file-limit-hint" class="hint">单个文件 ≤ 10 MB</span></div>
     <div class="resource-editor"><div id="task-attachments" class="resources"></div><label class="upload-control" for="attachment-input">添加文件<input id="attachment-input" type="file" multiple></label><p id="upload-state" class="upload-state" role="status"></p><p class="hint">支持 Word、PDF、图片等。附件随任务保存，最多 20 个。</p></div>
     <div class="resource-heading"><span>链接 <span class="optional">选填</span></span><button id="add-link" type="button" class="text-button">＋ 添加链接</button></div>
     <div id="task-links" class="resource-editor"></div>
@@ -53,18 +56,19 @@
   </form>
 </dialog>
 <dialog id="sources-dialog">
-  <div class="dialog-heading"><div><p class="eyebrow">CONNECTED SOURCES</p><h2>来源与同步</h2></div><button class="icon-button close-dialog" aria-label="关闭">×</button></div>
-  <div class="source-connection">
-    <p id="collector-state" role="status">正在检查扩展…</p>
-    <div id="collector-install" hidden><a class="secondary extension-download" href="/extension.zip" download="RUChecklist-extension.zip">下载 Edge 扩展</a><p class="hint">在电脑上解压，在 Edge 的扩展管理页开启开发人员模式，加载解压后的 extension 文件夹，然后刷新本页。</p></div>
-    <div id="collector-controls" hidden><button id="collector-connect" class="primary">连接此看板</button></div>
-  </div>
-  <div class="sync-toolbar"><p id="cloud-status" class="muted" role="status">正在检查同步状态…</p><button id="collector-scan" class="primary" disabled>立即同步</button></div>
-  <div id="sources-list"></div><div class="academic-sync"><button id="academic-scan" class="secondary" disabled>同步课表与考试</button><p class="hint">使用电脑 Edge 中的教务登录状态。首次更新扩展后，打开课表和考试查询即可导入；后续在 Edge 运行时自动检查。</p></div>
-  <details id="sync-settings"><summary>同步设置</summary>
+  <div class="dialog-heading"><div><p class="eyebrow">LET’S GET CONNECTED</p><h2>连接你的作业网站</h2></div><button class="icon-button close-dialog" aria-label="关闭">×</button></div>
+  <p class="muted guide-intro">首次在电脑 Edge 中完成下面 4 步。之后登录同一个账号，手机也能看到同步的任务。</p>
+  <details id="guide-install" class="guide-step" open><summary><span class="step-number">1</span><span>安装同步扩展<small id="install-state">只需安装一次</small></span></summary>
+    <div id="collector-install" class="step-body"><ol><li><a class="secondary extension-download" href="/extension.zip" download="RUChecklist-extension.zip">下载扩展安装包</a>，在电脑上右键选择“全部解压缩”。</li><li>复制 <code>edge://extensions</code> 到 Edge 地址栏打开。<button id="copy-extension-page" class="text-button" type="button">复制地址</button></li><li>打开“开发人员模式”，点“加载解压缩的扩展”，选择解压后的 <strong>extension</strong> 文件夹。</li><li>回到这个网页，点击下方按钮。更新扩展时，在管理页点一次“重新加载”。</li></ol><button id="collector-recheck" class="secondary" type="button">我已安装，重新检测</button></div>
+  </details>
+  <section class="guide-step"><h3><span class="step-number">2</span>连接当前账号</h3><div class="step-body"><p id="collector-state" role="status">正在检查扩展…</p><div id="collector-controls" hidden><button id="collector-connect" class="primary">连接此看板</button></div><p class="hint">不用复制配对码。换账号或换看板时，请重新连接。</p></div></section>
+  <section class="guide-step"><h3><span class="step-number">3</span>粘贴你的作业页面链接</h3><form id="source-links-form" class="step-body"><p class="hint">先在 Edge 登录你的作业网站，进入“作业”列表，把地址栏中的完整链接复制粘贴到这里。多个页面每行一个。</p><label for="source-urls">作业 / 教务页面链接</label><textarea id="source-urls" rows="3" placeholder="https://你的作业网站/作业列表" spellcheck="false"></textarea><button class="secondary" id="save-source-links" type="submit">保存这些链接</button><p id="source-links-result" class="hint" role="status"></p><details class="supported-sites"><summary>哪些网站可以自动导入？</summary><p class="hint">目前已适配 SmartEstu、课堂派、学习通，以及人大教务课表 / 考试。你可以填写自己使用的页面，不需要与示例账号相同。其他网站可保存为入口，暂时需要手动添加任务；添加链接不代表已完成适配。</p></details></form></section>
+  <section class="guide-step"><h3><span class="step-number">4</span>完成首次同步</h3><div class="step-body"><p class="hint">点击后，扩展会打开你保存的页面。若出现登录页，请在对应网站完成登录，再回来同步。</p><div class="sync-toolbar"><p id="cloud-status" class="muted" role="status">正在检查同步状态…</p><button id="collector-scan" class="primary" disabled>立即同步</button></div><div id="sources-list"></div><div id="unsupported-links"></div><div class="academic-sync" id="academic-controls" hidden><button id="academic-scan" class="secondary" disabled>同步课表与考试</button><p class="hint">教务导入使用电脑 Edge 中已登录的课表、考试查询页。</p></div><p class="hint">出现“已同步”和接收数量后，就可以关闭本窗口。普通浏览器采集在电脑休眠 / 关机时暂停；已同步的任务仍可在手机访问。</p></div></section>
+  <details id="sync-settings"><summary>更多同步设置</summary>
+    <div id="cloud-settings">
     <p class="hint">云端每 15 分钟读取作业，电脑关机也可运行。首次启用或登录过期时，需要在电脑扩展中授权。</p>
-    <div class="collector-actions"><button id="cloud-authorize" class="secondary">授权 / 更新登录</button><button id="cloud-revoke" class="text-button" disabled>关闭云端并删除授权</button></div>
-    <div id="browser-settings" hidden><label class="collector-toggle"><input id="collector-enabled" type="checkbox">浏览器打开时自动导入</label><button id="collector-options" class="text-button">设置作业网站地址</button></div>
+    <div class="collector-actions"><button id="cloud-authorize" class="secondary">授权 / 更新登录</button><button id="cloud-revoke" class="text-button" disabled>关闭云端并删除授权</button></div></div>
+    <div id="browser-settings" hidden><label class="collector-toggle"><input id="collector-enabled" type="checkbox">浏览器打开时自动导入</label><button id="collector-options" class="text-button">打开扩展设置</button></div>
   </details>
   <p id="source-error" class="error" role="alert"></p>
 </dialog>
@@ -84,6 +88,8 @@
   <label for="course-occurrence">查看课次</label><select id="course-occurrence"></select><div id="course-detail"></div>
 </dialog>
 <dialog id="delete-dialog"><h2>删除这项任务？</h2><p>从教学网站导入的任务，删除后不会再次自动加入。</p><div class="dialog-actions"><button class="secondary close-dialog">取消</button><button id="confirm-delete" class="danger">删除任务</button></div></dialog>
+<dialog id="account-dialog"><div class="dialog-heading"><h2>账号与恢复码</h2><button type="button" class="icon-button close-dialog" aria-label="关闭账号设置">×</button></div><p id="account-name"></p><p class="hint">恢复码相当于备用钥匙，请保存在自己的密码管理器或安全位置。生成新码后，旧码立即失效。</p><form id="recovery-form"><label for="account-password">当前密码</label><input id="account-password" type="password" autocomplete="current-password" required><button class="secondary" type="submit">重新生成恢复码</button><p id="account-error" class="error" role="alert"></p></form></dialog>
+<dialog id="recovery-dialog"><h2>保存你的账号恢复码</h2><p class="hint">忘记密码时，用用户名和这份恢复码重设。我们不发送找回邮件。请先下载保存，再进入看板。</p><pre id="recovery-value"></pre><div class="dialog-actions"><button id="download-recovery" class="primary">下载恢复码</button><button id="recovery-done" class="secondary" disabled>已保存，进入看板</button></div></dialog>
 <div id="toast" class="toast" role="status" hidden></div>
 </body>
 </html>
