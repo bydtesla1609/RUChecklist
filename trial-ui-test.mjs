@@ -47,7 +47,7 @@ try {
   await page.locator("#collector-recheck").click();await page.locator("#collector-connect").click();await page.locator("#collector-state").filter({hasText:"已连接"}).waitFor();
   await addWebsite("https://jw.ruc.edu.cn/Njw2017/index.html#/");await page.waitForFunction(()=>fixtureCommands.includes("academic-scan"));assert.equal(await page.locator("#academic-scan").count(),0);
   await page.locator("#collector-scan").click();await page.locator("#source-error").filter({hasText:"1.9.0"}).waitFor();
-  await page.evaluate(()=>fixtureVersion="1.9.0");await page.locator("#collector-recheck").click();await page.locator("#collector-state").filter({hasText:"1.9.0"}).waitFor();
+  await page.evaluate(()=>fixtureVersion="1.9.1");await page.locator("#collector-recheck").click();await page.locator("#collector-state").filter({hasText:"1.9.1"}).waitFor();
   await page.getByRole("button",{name:"识别设置：course.example",exact:true}).click();await page.waitForFunction(()=>fixtureMessages.some(message=>message.command==="generic-setup" && message.url==="https://course.example/homework"));
   await page.locator("#collector-scan").click();await page.waitForFunction(()=>fixtureCommands.filter(x=>x==="scan").length>=1);
   await page.getByRole("button",{name:"同步：SmartEstu",exact:true}).click();

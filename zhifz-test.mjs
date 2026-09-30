@@ -61,3 +61,36 @@ test("existing cloud consent does not upload Zhifz cookies until the new source 
   await vm.runInContext("cloudRecipe(message,sender)",context);assert.equal(reads,0);assert.equal(sent,0);
   saved.cloudZhifzEnabled=true;await vm.runInContext("cloudRecipe(message,sender)",context);assert.equal(reads,1);assert.equal(sent,1);
 });
+
+test("Zhifz browser collection preserves list headers for the other tab, accepts empty lists and keeps cloud consent separate",async()=>{
+  async function collect({xhr=false,past={result:true,data:rows()},latest={result:true,data:[]}}={}) {
+    const messages=[],calls=[];
+    class XHR {
+      open(){} setRequestHeader(){} addEventListener(type,listener){this.listener=listener;}
+      send(){this.status=200;this.responseText=JSON.stringify(latest);this.listener();}
+    }
+    const window={addEventListener(){},postMessage:value=>messages.push(value),fetch:async(url,options)=>{
+      const states=JSON.parse(new URL(url).searchParams.get("状态"));calls.push(states);
+      const headers=new Headers(options?.headers);
+      // Both list requests must retain the same observed Angular request headers.
+      if(headers.get("x-xsrf-token")!=="synthetic-only" || headers.get("accept")!=="application/json")return Response.json({result:false,error:"请重新登录"});
+      if(states[0]===2){assert.equal(options.credentials,"same-origin");return Response.json(past);}
+      return Response.json(latest);
+    }};window.top=window;
+    const context=vm.createContext({window,location:new URL(SOURCES.zhifz.url),XMLHttpRequest:XHR,URL,URLSearchParams,Request,Headers,AbortSignal,Map,WeakMap});
+    for(const name of ["cloud-routes.js","parsers.js","capture.js"])vm.runInContext(await readFile(new URL(`./extension/${name}`,import.meta.url),"utf8"),context);
+    if(xhr){const req=new XHR();req.open("GET",list([0,1]));req.setRequestHeader("Accept","application/json");req.setRequestHeader("X-XSRF-TOKEN","synthetic-only");req.send();}
+    else await window.fetch(list([0,1]),{headers:{accept:"application/json","x-xsrf-token":"synthetic-only"}});
+    for(let i=0;i<50 && !messages.length;i++)await new Promise(resolve=>setTimeout(resolve,10));
+    assert.equal(messages.length,1);assert.equal(messages[0].kind,"campus-assignments-v1");
+    assert.ok(!JSON.stringify(messages).includes("synthetic-only"),"request headers stay local without cloud consent");
+    assert.ok(calls.some(states=>states[0]===2),"latest empty list still reads past assignments");
+    return messages[0];
+  }
+  for(const xhr of [false,true]){
+    const result=await collect({xhr});assert.equal(result.error,undefined);assert.equal(result.tasks.length,4);
+  }
+  const empty=await collect({past:{result:true,data:[]}});assert.equal(empty.error,undefined);assert.equal(empty.tasks.length,0);
+  const failed=await collect({past:{result:false,error:"Unknown response"}});
+  assert.match(failed.error,/往期作业返回格式未识别/);assert.equal(failed.tasks.length,0);
+});
