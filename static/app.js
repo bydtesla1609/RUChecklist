@@ -584,11 +584,14 @@ function collectorCommand(command,extra={},timeout=18000) {
 function updateSyncControls() {
   const connected=!!collectorState?.connected;
   $("collector-controls").hidden=!collectorState || connected;
-  $("install-state").textContent=collectorState?`已安装 v${collectorState.version} · 最新 v1.6.0`:"只需安装一次";
+  $("install-state").textContent=collectorState?`已安装 v${collectorState.version} · ${(collectorState.version || "0").localeCompare("1.6.0",undefined,{numeric:true})<0?"可更新至 v1.6.0":"已是最新版本"}`:"只需安装一次";
+  $("collector-options").disabled=!collectorState;
   $("browser-settings").hidden=!connected;
   $("collector-scan").disabled=syncing || !(cloudState?.enabled || (connected && collectorState.enabled));
-  $("collector-scan").textContent=syncing?"正在同步…":"立即同步";
-  $("cloud-authorize").disabled=!connected;
+  $("collector-scan").textContent=syncing?"正在同步…":"一键同步";
+  $("cloud-authorize").disabled=!connected || !cloudState?.available;
+  $("cloud-authorize").textContent=cloudState?.enabled?"更新云端授权":"前往云端授权";
+  $("cloud-revoke").hidden=!cloudState?.enabled;
   $("cloud-revoke").disabled=syncing || !cloudState?.enabled;
 }
 async function checkCollector() {
@@ -628,7 +631,7 @@ async function saveWebsiteLinks(urls,submitted=null) {
     $("source-links-result").textContent=added&&!added.source?"链接已保存，此网站尚未适配，请手动添加任务。":"网站配置已保存。";
     if(added?.source && collectorState?.connected && collectorState.enabled) {
       try {requireSelectiveSync();await collectorCommand(added.source==="ruc_courses"?"academic-scan":"scan",{source:added.source});$("source-links-result").textContent="已配置，正在读取网站内容。";}
-      catch(error){$("source-links-result").textContent=`已保存，可点击立即同步重试：${error.message}`;}
+      catch(error){$("source-links-result").textContent=`已保存，可点击一键同步重试：${error.message}`;}
     }
   }catch(error){$("source-links-result").textContent=error.message;}
   finally{websiteBusy=false;$("save-source-link").disabled=false;renderWebsiteLinks();}
@@ -692,10 +695,10 @@ async function checkCloud() {
   try {
     cloudState=await api("/api/cloud");
     $("cloud-status").textContent=cloudState.enabled?`云端自动同步已开启 · 每 ${cloudState.interval_minutes || (trialMode?30:15)} 分钟`:"浏览器自动同步 · 每 15 分钟";
-    $("cloud-settings").hidden=!cloudState.available;
-    $("sync-mode-note").textContent=cloudState.enabled?"已授权网站由云端持续采集，电脑关机也会更新。微人大课表与考试仍通过浏览器同步。":"尚未启用云端采集。可在下方授权，已支持的网站就能在电脑关机后继续更新。";
+    $("cloud-grant-state").textContent=!cloudState.available?"此看板暂未配置云端同步":cloudState.enabled?`已开启 · 每 ${cloudState.interval_minutes || (trialMode?30:15)} 分钟检查一次`:"尚未开启 · 可按下方步骤授权";
+    $("sync-mode-note").textContent=cloudState.enabled?"已授权网站由云端持续采集，电脑关机也会更新。微人大课表与考试仍通过浏览器同步。":"尚未启用云端同步。如需关机后继续更新，请先完成第 4 步授权。";
     updateSyncControls();renderSources();
-  }catch(error){$("cloud-status").textContent=error.message;}
+  }catch(error){$("cloud-status").textContent=error.message;$("cloud-grant-state").textContent="暂时无法读取授权状态，请重新打开此清单重试。";}
 }
 $("cloud-revoke").onclick=async()=>{
   if(!confirm("关闭云端采集并删除服务器保存的教学网站登录授权？已导入的任务会保留。"))return;
@@ -790,7 +793,7 @@ $("add-menu").replaceChildren(...CATEGORIES.map(category => {
 document.addEventListener("click", event => { if (!event.target.closest(".add-control") && !event.target.closest(".empty")) closeAddMenu(); });
 document.addEventListener("keydown", event => { if (event.key === "Escape" && !$("add-menu").hidden) { closeAddMenu(); $("add-task").focus(); } });
 $("add-task").onclick = startAdd;
-$("sources-button").onclick = () => { renderSources(); $("sources-dialog").showModal(); $("source-error").textContent=""; loadSourceLinks();checkCollector().then(()=>{if(!$("demo-dialog").open)$("guide-install").open=!collectorState || collectorState.version!=="1.6.0";}); checkCloud(); };
+$("sources-button").onclick = () => { $("guide-install").open=!collectorState || collectorState.version!=="1.6.0";renderSources(); $("sources-dialog").showModal(); $("source-error").textContent=""; loadSourceLinks();checkCollector().then(()=>{if(!$("demo-dialog").open)$("guide-install").open=!collectorState || collectorState.version!=="1.6.0";}); checkCloud(); };
 document.querySelectorAll(".close-dialog").forEach(button => button.onclick = () => button.closest("dialog").close());
 $("task-form").onsubmit = async event => {
   event.preventDefault(); $("save-task").disabled = true; $("task-error").textContent = "";
@@ -831,7 +834,8 @@ const demoSteps=[
   {category:"课程",target:"#board",title:"课程：按课表查看",text:"选择学期和教学周查看课程。考试、活动、会议也有独立板块，按各自的时间安排展示。"},
   {target:"#add-task",title:"随时补充自己的安排",text:"填写标题和时间，再按需要补充地点、内容、待办、附件和链接。"},
   {target:"#sources-button",title:"网站配置在这里",text:"点击侧栏的“来源与同步”，安装并连接同步扩展，就可以接入自己的校园网站。下一步带你查看配置位置。"},
-  {target:"#add-source-link",sources:true,title:"一个网站，一条配置",text:"点击“添加网站”，粘贴需要同步的页面网址，再点确认。系统自动保存并识别；需要更多网站时继续添加。每个平台旁的“同步”只读取该来源，“立即同步”读取全部来源。"},
+  {target:"#add-source-link",sources:true,title:"一个网站，一条配置",text:"点击“添加网站”，粘贴需要同步的页面网址，再点确认。系统自动保存并识别；需要更多网站时继续添加。每个平台旁的“同步”只读取该来源，“一键同步”读取全部来源。"},
+  {target:"#cloud-authorize",sources:true,title:"云端同步：电脑关机也能更新",text:"在“来源与同步”第 4 步前往扩展授权，勾选同意后启用。登录凭据会加密保存在当前账号下，可随时关闭并删除。授权后回到第 5 步点击“一键同步”检查结果。微人大课表和考试目前仍需电脑浏览器运行。"},
   {target:"#archive-button",title:"完成后自动整理",text:"任务按完成时间倒序排列，完成满 7 天会进入归档处。你可以查看详情或删除，也可以随时点击“使用演示”重看这些说明。"}
 ];
 let demoIndex=0,demoOriginal=null;
@@ -850,13 +854,15 @@ async function showDemoStep() {
   const step=demoSteps[demoIndex];
   $("demo-next").disabled=true;$("demo-prev").disabled=true;
   if(step.sources) {
-    if(!$("sources-dialog").open){$("demo-dialog").close();$("sources-dialog").showModal();$("demo-dialog").showModal();await loadSourceLinks();}
+    if(!$("sources-dialog").open){$("demo-dialog").close();$("sources-dialog").showModal();$("demo-dialog").showModal();await Promise.all([loadSourceLinks(),checkCloud(),checkCollector()]);}
     $("guide-install").open=false;
   }else {
     $("sources-dialog").close();
     if(step.category){categoryFilter=step.category;render();}
   }
   $("demo-title").textContent=step.title;$("demo-description").textContent=step.text;$("demo-progress").textContent=`${demoIndex+1} / ${demoSteps.length}`;
+  await new Promise(requestAnimationFrame);
+  if(!$("demo-dialog").open || demoSteps[demoIndex]!==step)return;
   $("demo-prev").disabled=demoIndex===0;$("demo-next").disabled=false;$("demo-next").textContent=demoIndex===demoSteps.length-1?"开始使用":"下一步";
   document.querySelector(step.target)?.scrollIntoView({block:step.sources?"center":"nearest",behavior:"instant"});
   positionDemo();$("demo-next").focus({preventScroll:true});
@@ -878,7 +884,7 @@ const demoLayout=new ResizeObserver(()=>{
   if(!$("demo-dialog").open)return;
   document.querySelector(demoSteps[demoIndex].target)?.scrollIntoView({block:demoSteps[demoIndex].sources?"center":"nearest",behavior:"instant"});positionDemo();
 });
-for(const id of ["guide-install","website-setup","collector-controls"])demoLayout.observe($(id));
+for(const id of ["guide-install","website-setup","collector-controls","cloud-settings"])demoLayout.observe($(id));
 
 function setAuthMode(mode) {
   authMode=mode;$("invite-field").hidden=mode!=="register";$("recovery-field").hidden=mode!=="recover";

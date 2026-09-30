@@ -248,8 +248,9 @@ try {
     });
   });
   await page.locator("#sources-button").click();await page.waitForFunction(()=>document.getElementById("collector-state").textContent.includes("已连接"));
+  assert.equal(await page.locator("#collector-scan").textContent(),"一键同步");
   await page.locator("#collector-scan").click();await page.waitForFunction(()=>window.testScanCount===1);
-  await page.locator("#sync-settings summary").click();await page.locator("#collector-enabled").uncheck();await page.waitForFunction(()=>document.getElementById("collector-state").textContent.includes("已暂停"));
+  await page.locator("#collector-enabled").uncheck();await page.waitForFunction(()=>document.getElementById("collector-state").textContent.includes("已暂停"));
   assert.equal(await page.locator("#collector-scan").isDisabled(),true);
   await page.route("**/api/cloud",route=>route.fulfill({json:{available:true,enabled:true,sources:{smartestu:{authorized:true,last_success:new Date().toISOString(),count:3,status_count:3,changed:0}}}}));
   let cloudRuns=0;
@@ -259,7 +260,7 @@ try {
   assert.equal(cloudRuns,1);assert.equal(await page.evaluate(()=>window.testScanCount),1);
   await page.locator("#collector-enabled").check();await page.locator("#collector-scan").click();await page.waitForFunction(()=>!syncing);assert.equal(cloudRuns,2);assert.equal(await page.evaluate(()=>window.testScanCount),2);
   assert.match(await page.locator("#sources-list").textContent(),/已同步/);
-  await page.locator("#sync-settings summary").click();
+
   await page.screenshot({path:"data/screenshots/sources.png"});
   await page.locator("#sources-dialog .close-dialog").click();
   await category(page, "活动").click(); await page.locator("#add-task").click();
