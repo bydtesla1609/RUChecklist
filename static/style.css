@@ -64,4 +64,5 @@ label{display:block;margin:20px 0 8px;font-size:.84rem;font-weight:500;color:#d6
 @media(max-width:680px){.schedule-columns{grid-template-columns:1fr}.task-time .time-range{font-size:.85rem}.source-row .state{font-size:.75rem}}
 
 .schedule-list.exam-group{border-left:2px solid #f3c98a45;padding-left:20px}.schedule-list.activity-group{border-left:2px solid #88daca45;padding-left:20px}.cloud-grant-state{color:var(--mint);font-size:.9rem}#cloud-settings .collector-actions{margin:12px 0 0}#browser-settings .collector-toggle{font-size:.85rem}#collector-install>button{margin-top:12px;margin-right:8px}
+.source-login{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:7px 12px;white-space:nowrap}.source-actions{display:flex;gap:10px;margin-left:auto}.source-row strong{font-weight:500}.expired-site{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 0;border-bottom:1px solid var(--border)}#expired-sites{margin:12px 0 20px}.expired-site strong{min-width:0;overflow-wrap:anywhere}
 @media(max-width:680px){.schedule-list.exam-group,.schedule-list.activity-group{padding-left:14px}}

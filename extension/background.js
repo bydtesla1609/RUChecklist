@@ -43,7 +43,7 @@ async function cloudRecipe(message,sender) {
   if(cloudRecipeCache[fingerprint]) return {skipped:true};
   await cloudAPI("/api/cloud-credentials",{source:message.source,recipe});
   cloudRecipeCache[fingerprint]=Date.now();
-  await chrome.storage.local.set({cloudRecipeCache:Object.fromEntries(Object.entries(cloudRecipeCache).slice(-50)),cloudLastResult:"已保存云端授权，请到看板点击云端立即同步。"});
+  await chrome.storage.local.set({cloudRecipeCache:Object.fromEntries(Object.entries(cloudRecipeCache).slice(-50)),cloudLastResult:"授权已保存，请回到看板点击“一键同步”。"});
   await cloudResult(message.source,"授权已保存，等待云端验证");
   return {ok:true};
 }
@@ -166,7 +166,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
     current.then(reply).catch(error=>reply({error:error.message}));return true;
   }
   if(message.type==="cloud-authorize" && sender.url?.startsWith(chrome.runtime.getURL(""))) {
-    (async()=>{if(!await chrome.permissions.contains({permissions:["cookies"]}))throw new Error("需要先允许云端登录授权");await cloudAPI("/api/cloud-authorize",{});await chrome.storage.local.set({cloudEnabled:true,cloudRecipeCache:{},cloudLastResult:"等待读取三个平台的作业列表授权…"});await scan(true);return {ok:true};})().then(reply).catch(error=>reply({error:error.message}));return true;
+    (async()=>{if(!await chrome.permissions.contains({permissions:["cookies"]}))throw new Error("需要先允许云端登录授权");await cloudAPI("/api/cloud-authorize",{});await chrome.storage.local.set({cloudEnabled:true,cloudRecipeCache:{},cloudLastResult:"正在读取已配置网站的登录授权…"});await scan(true);return {ok:true};})().then(reply).catch(error=>reply({error:error.message}));return true;
   }
   if(message.type==="capture" && sender.tab) {
     const current=queue.then(()=>upload(message,sender));

@@ -6,6 +6,7 @@ import {join,dirname,resolve} from "node:path";
 import vm from "node:vm";
 import worker from "./worker.mjs";
 import {createEnvironment} from "./local.mjs";
+import {enableCloud,saveCloudRecipe,runCloud,cloudStatus} from "./cloud.mjs";
 
 test("cloud authorization is encrypted, scoped, independently scheduled, incremental and revocable",async()=>{
   const root=resolve(tmpdir()),dir=await mkdtemp(join(root,"campus-cloud-"));
@@ -55,7 +56,7 @@ test("cloud authorization is encrypted, scoped, independently scheduled, increme
     tasks=(await api("/api/board")).data.tasks;assert.deepEqual(tasks.map(task=>[task.id,task.revision,task.completed_at]),previous);
     remoteStatus="not_submitted";await api("/api/cloud/run","POST",{});
     tasks=(await api("/api/board")).data.tasks;assert.equal(tasks.find(task=>task.source==="smartestu").status,"todo");
-    failSmart=true;run=await api("/api/cloud/run","POST",{});assert.match(run.data.smartestu.error,/登录授权/);assert.equal(run.data.ketangpai.error,null);assert.equal((await api("/api/board")).data.tasks.length,3);
+    failSmart=true;run=await api("/api/cloud/run","POST",{});assert.match(run.data.smartestu.error,/跳转/);assert.equal(run.data.smartestu.error_code,null);assert.equal(run.data.ketangpai.error,null);assert.equal((await api("/api/board")).data.tasks.length,3);
     await api("/api/cloud","DELETE");assert.equal(database.prepare("SELECT count(*) AS n FROM settings WHERE key LIKE 'cloud_credential_%'").get().n,0);
     const before=requests;assert.equal((await api("/api/cloud/run","POST",{})).data.skipped,true);assert.equal(requests,before);
     assert.equal((await api("/api/cloud-credentials","POST",smart,auth)).status,403);
@@ -63,6 +64,48 @@ test("cloud authorization is encrypted, scoped, independently scheduled, increme
     assert.equal((await api("/api/import","POST",batch,auth)).data.changed,30);
     assert.equal((await api("/api/import","POST",batch,auth)).data.changed,0);
   }finally{globalThis.fetch=originalFetch;database.close();assert.equal(dirname(resolve(dir)),root);await rm(dir,{recursive:true,force:true});}
+});
+
+test("expired logins are explicit, stable until recovery, and distinct from site/network failures",async()=>{
+  const dir=await mkdtemp(join(tmpdir(),"campus-expiry-")),{env,database}=await createEnvironment(dir,"synthetic-expiry-test");
+  env.CLOUD_ENCRYPTION_KEY="34".repeat(32);
+  try {
+    await enableCloud(env);
+    const recipes={
+      smartestu:{url:"https://smartestu.cn/api/homework/student/mark/queryHomeworks",method:"GET",page_url:"https://smartestu.cn/assignment"},
+      ketangpai:{url:"https://openapiv5.ketangpai.com//FutureV2/CourseMeans/getCourseContent",method:"POST",page_url:"https://www.ketangpai.com/"},
+      chaoxing:{url:"https://mooc1.chaoxing.com/mooc-ans/mooc2/work/list?courseId=1",method:"GET",page_url:"https://mooc1.chaoxing.com/"}
+    };
+    for(const [source,recipe] of Object.entries(recipes))await saveCloudRecipe(env,source,recipe);
+    let imports=0;
+    const collect=async(source,response)=> (await runCloud(env,async()=>{imports++;return {changed:0};},{source,fetcher:async()=>response()}))[source];
+    for(const source of Object.keys(recipes)){
+      const first=await collect(source,()=>new Response("",{status:401}));assert.equal(first.error_code,"auth_expired");assert.ok(first.auth_expired_at);
+      const second=await collect(source,()=>new Response("",{status:401}));assert.equal(second.auth_expired_at,first.auth_expired_at);
+      await saveCloudRecipe(env,source,recipes[source]);assert.equal((await cloudStatus(env)).sources[source].error_code,"auth_expired","upload alone is not proof of recovery");
+    }
+    for(const response of [
+      ()=>new Response("",{status:302,headers:{location:"https://passport2.chaoxing.com/login"}}),
+      ()=>new Response('<html><h1>登录</h1><form><input type="password"></form></html>'),
+      ()=>Response.json({status:false,msg:"请先登录"})
+    ])assert.equal((await collect("chaoxing",response)).error_code,"auth_expired");
+    assert.equal((await collect("ketangpai",()=>Response.json({status:0,message:"token expired"}))).error_code,"auth_expired");
+    assert.equal((await collect("smartestu",()=>Response.json({authenticated:false}))).error_code,"auth_expired");
+    const knownExpiry=(await cloudStatus(env)).sources.smartestu.auth_expired_at;
+    assert.equal((await collect("smartestu",()=>new Response("",{status:503}))).auth_expired_at,knownExpiry,"network failure cannot prove a known expired login recovered");
+    assert.equal((await collect("smartestu",()=>new Response("",{status:401}))).auth_expired_at,knownExpiry);
+    database.prepare("DELETE FROM settings WHERE key='cloud_state_smartestu'").run(); // Check failures without a prior confirmed expiry.
+    for(const response of [
+      ()=>new Response("",{status:403}),()=>new Response("",{status:503}),
+      ()=>new Response("",{status:302,headers:{location:"https://evil.example/login"}}),
+      ()=>new Response("",{status:302,headers:{location:"/maintenance"}}),
+      ()=>new Response("<h1>Checking your browser</h1>"),
+      ()=>Response.json({message:"服务器繁忙"}),()=>{throw new TypeError("fetch failed");}
+    ]){const state=await collect("smartestu",response);assert.ok(state.error);assert.equal(state.error_code,null);assert.equal(state.auth_expired_at,null);}
+    assert.equal(imports,0,"failed authentication must never import or remove tasks");
+    const recovered=await collect("ketangpai",()=>Response.json({data:{list:[{id:1,contenttype:4,title:"未登录网站的原因分析",mstatus:0}]}}));
+    assert.equal(imports,1);assert.equal(recovered.error,null);assert.equal(recovered.error_code,null);assert.equal(recovered.auth_expired_at,null);assert.ok(recovered.last_success);
+  }finally{database.close();await rm(dir,{recursive:true,force:true});}
 });
 
 test("extension sends no cloud credentials without opt-in and scopes cookies to approved list URL",async()=>{

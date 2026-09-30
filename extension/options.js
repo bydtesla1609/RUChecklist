@@ -3,7 +3,7 @@ $("version").textContent=`· v${chrome.runtime.getManifest().version}`;
 chrome.storage.local.get("reloadFromVersion").then(({reloadFromVersion})=>{
   if(!reloadFromVersion)return;
   const version=chrome.runtime.getManifest().version;
-  $("reload-result").textContent=version===reloadFromVersion?`已重新加载，当前仍为 v${version}。若要升级，请先将新版文件替换到原安装文件夹，再重新加载。`:`重新加载成功：v${reloadFromVersion} → v${version}`;
+  $("reload-result").textContent=version===reloadFromVersion?`已重新加载，当前仍为 v${version}。升级步骤见看板清单第 1 步。`:`重新加载成功：v${reloadFromVersion} → v${version}`;
   chrome.storage.local.remove("reloadFromVersion");
 });
 $("reload-extension").onclick=async()=>{await chrome.storage.local.set({reopenAfterReload:true,reloadFromVersion:chrome.runtime.getManifest().version});chrome.runtime.reload();};
@@ -57,7 +57,7 @@ $("settings").onsubmit=async event=>{
     if(result?.error) throw new Error(result.error);
     localStorage.removeItem(draftKey);
     $("draft-state").textContent="设置已生效。";
-    $("result").textContent="已保存。请点击“立即打开作业页”进行首次导入。";
+    $("result").textContent="已保存，可回到看板同步。";
   }catch(error){$("result").textContent=error.message;}
 };
 $("scan").onclick=async()=>{
@@ -76,12 +76,12 @@ chrome.storage.onChanged?.addListener((changes,area)=>{if(area==="local" && chan
 $("cloud-authorize").onclick=async()=>{
   if(!$("cloud-consent").checked){$("cloud-result").textContent="请先阅读并勾选云端登录授权说明。";return;}
   try {
-    if(!chrome.runtime.getManifest().optional_host_permissions?.includes("http://*.chaoxing.com/*")) throw new Error("扩展后台尚未加载新增权限。请点击顶部“重新加载此扩展”，确认版本 v1.6.0 或更新版本 后再授权。");
+    if(!chrome.runtime.getManifest().optional_host_permissions?.includes("http://*.chaoxing.com/*")) throw new Error("扩展后台尚未加载新增权限。请点击下方“重新加载此扩展”，确认版本 v1.6.0 或更新版本 后再授权。");
     const allowed=await chrome.permissions.request({permissions:["cookies"],origins:["https://openapiv5.ketangpai.com/*","http://*.chaoxing.com/*","https://*.chaoxing.com/*","https://ketangpai.com/*"]});
     if(!allowed)throw new Error("未获得登录授权读取权限，云端采集未启用。");
     $("cloud-authorize").disabled=true;
     const result=await chrome.runtime.sendMessage({type:"cloud-authorize"});
-    if(result?.ok!==true)throw new Error(result?.error || "扩展后台未确认授权。请点击顶部“重新加载此扩展”，重新打开后再授权。");
-    $("cloud-result").textContent="已启用。正在打开已配置的网站保存授权；加载完成后，到看板点击“立即同步”检查结果。";
+    if(result?.ok!==true)throw new Error(result?.error || "扩展后台未确认授权。请点击下方“重新加载此扩展”，重新打开后再授权。");
+    $("cloud-result").textContent="已启用。网站加载完成后，回到看板点击“一键同步”检查结果。";
   }catch(error){$("cloud-result").textContent=error.message;}finally{$("cloud-authorize").disabled=false;}
 };

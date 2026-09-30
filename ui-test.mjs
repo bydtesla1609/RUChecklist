@@ -41,6 +41,38 @@ try {
     await root.getByRole("button", {name: "添加待办事项", exact: true}).click();
   }
   await login(page);
+  env.CLOUD_ENCRYPTION_KEY="56".repeat(32);
+  const expiredAt=new Date().toISOString();
+  function cloudFixture(source,state) {database.prepare("INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(`cloud_state_${source}`,JSON.stringify(state));}
+  database.prepare("INSERT INTO settings(key,value) VALUES ('cloud_enabled','1')").run();
+  const expired={authorized:true,error:"网站登录已过期",error_code:"auth_expired",auth_expired_at:expiredAt};
+  cloudFixture("smartestu",expired);
+  cloudFixture("ketangpai",{authorized:true,error:"网站拒绝云端访问",error_code:null});
+  await page.reload();await page.locator("#login-expired-dialog").waitFor({state:"visible"});
+  assert.equal(await page.locator("#expired-sites .expired-site").count(),1);
+  assert.equal(await page.getByRole("link",{name:"重新登录：SmartEstu"}).getAttribute("href"),"https://smartestu.cn/assignment");
+  assert.equal(await page.getByRole("link",{name:"重新登录：SmartEstu"}).getAttribute("target"),"_blank");
+  await mkdir("data/screenshots",{recursive:true});await page.screenshot({path:"data/screenshots/login-expired-desktop.png"});
+  await page.setViewportSize({width:390,height:844});await page.screenshot({path:"data/screenshots/login-expired-mobile.png"});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth && document.getElementById("login-expired-dialog").scrollWidth<=document.getElementById("login-expired-dialog").clientWidth),true);
+  await page.locator("#expired-open-sources").click();
+  await page.locator("#sources-list .source-login").waitFor({state:"visible"});
+  assert.equal(await page.locator("#sources-list .source-login").count(),1);
+  assert.equal(await page.locator("#sources-list .source-login").getAttribute("href"),"https://smartestu.cn/assignment");
+  await page.screenshot({path:"data/screenshots/login-expired-source-mobile.png"});
+  await page.locator("#sources-dialog .close-dialog").click();await page.evaluate(()=>checkCloud());
+  assert.equal(await page.locator("#login-expired-dialog").isVisible(),false,"dismissed incident must not reappear on polling");
+  await page.setViewportSize({width:1440,height:1050});
+  await page.locator("#add-task").click();await page.locator("#add-menu button").filter({hasText:"活动"}).click();
+  cloudFixture("chaoxing",expired);await page.evaluate(()=>checkCloud());
+  assert.equal(await page.locator("#login-expired-dialog").isVisible(),false,"do not interrupt an editor");
+  await page.locator("#task-dialog .close-dialog").first().click();await page.locator("#login-expired-dialog").waitFor({state:"visible"});
+  assert.equal(await page.locator("#expired-sites .expired-site").count(),2);
+  for(const source of ["smartestu","chaoxing"])cloudFixture(source,{authorized:true,error:null,error_code:null,auth_expired_at:null,last_success:new Date().toISOString(),count:0,status_count:0});
+  await page.evaluate(()=>checkCloud());await page.locator("#login-expired-dialog").waitFor({state:"hidden"});
+  await page.reload();await page.locator("#workspace").waitFor({state:"visible"});await page.evaluate(()=>checkCloud());
+  assert.equal(await page.locator("#login-expired-dialog").isVisible(),false,"verified recovery removes the reminder on next visit");
+  database.prepare("UPDATE settings SET value='0' WHERE key='cloud_enabled'").run();await page.evaluate(()=>checkCloud());
   await page.locator("#add-task").click(); await page.locator("#add-menu button").filter({hasText: "活动"}).click();
   assert.equal(await page.locator("#category").count(), 0);
   assert.equal(await page.locator("#task-title").getAttribute("required"), "");
@@ -327,7 +359,7 @@ try {
   }
   await phone.setViewportSize({width:390,height:844});await category(phone,"课程").click();await phone.screenshot({path:"data/screenshots/courses-mobile.png",fullPage:true});
   assert.deepEqual(errors, []);
-  console.log("PASS: Beijing monthly calendar, date selection, month/keyboard navigation, ranges, undated tasks, direct status and conflict handling, downloadable extension, unified cloud/local sync, completion order, archive filter/detail/delete, simulated board-to-extension controls, category inheritance, required title, location, detail/card todo CRUD, mouse/touch/keyboard sorting, two browser sessions, conflict draft retention, 320–768px layouts, timetable semester/week filters, recurring course grouping, course editing without status, hidden course summary, logo alignment, attachment upload/preview/download and shared links. Screenshots: data/screenshots/ (synthetic data only).");
+  console.log("PASS: login-expiry popup on opening, deduplicated reminders deferred during editing, shared relogin links, verified recovery, Beijing monthly calendar, date selection, month/keyboard navigation, ranges, undated tasks, direct status and conflict handling, downloadable extension, unified cloud/local sync, completion order, archive filter/detail/delete, simulated board-to-extension controls, category inheritance, required title, location, detail/card todo CRUD, mouse/touch/keyboard sorting, two browser sessions, conflict draft retention, 320–768px layouts, timetable semester/week filters, recurring course grouping, course editing without status, hidden course summary, logo alignment, attachment upload/preview/download and shared links. Screenshots: data/screenshots/ (synthetic data only).");
 } finally {
   await browser?.close(); server.closeAllConnections(); await new Promise(resolve=>server.close(resolve)); database.close();
   await rm(directory, {recursive:true,force:true});

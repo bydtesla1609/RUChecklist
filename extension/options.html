@@ -1,4 +1,37 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>校园同步设置</title><link rel="stylesheet" href="options.css"><script src="options.js" defer></script></head>
-<body><p class="eyebrow">RUChecklist <span id="version"></span></p><h1>连接 RUChecklist</h1><button id="reload-extension" type="button">重新加载此扩展</button><p>先下载新版并将文件替换到原来安装的 extension 文件夹，再点此按钮。重新加载不下载更新；设置页重新打开后，请检查顶部版本号。</p><p><a id="open-board" href="https://campus-task-board.pages.dev/" target="_blank" rel="noopener noreferrer">打开看板，在“来源与同步”直接连接和同步 ↗</a></p><p>配对后，读取 浏览器已登录页面中的作业标题、课程、截止时间和完成状态，以及人大课表、考试日程。本机导入不上传账号密码、Cookie、答案或成绩。只有下方单独授权的云端采集会加密保存作业列表的登录凭据。</p>
-<p id="reload-result" role="status"></p><p>首次使用：打开看板 → 来源与同步，按四步指南安装、连接、粘贴链接并同步。网站链接在网页内保存即可。</p><details id="legacy-settings"><summary>高级：旧版手动配对设置</summary><p id="draft-state" role="status">这是独立设置标签页，可以来回复制。输入会自动保留，保存设置后生效。</p>
-<form id="settings"><label for="url">看板地址</label><input id="url" type="url" placeholder="https://你的看板地址" required><label for="token">配对码</label><input id="token" type="password" required autocomplete="off"><p>优先在看板的“来源与同步”点击“连接此看板”，这些配置会自动填入。</p><details><summary>自定义网站页面（选填）</summary><p>兼容旧版看板；新版请直接在网页第 3 步保存链接，网页配置优先。</p><label for="smartestu">SmartEstu</label><input id="smartestu" type="url" placeholder="https://smartestu.cn/assignment"><label for="ketangpai">课堂派课程页</label><input id="ketangpai" type="url" placeholder="https://www.ketangpai.com/…"><label for="chaoxing">学习通课程页</label><input id="chaoxing" type="url" placeholder="https://mooc2-ans.chaoxing.com/…"></details><label class="check"><input id="enabled" type="checkbox">每 15 分钟自动检查</label><p>会创建作业、人大课表与考试查询的专用标签页。请在这些标签页完成登录。电脑休眠或 浏览器关闭后暂停采集；只导入已加载的列表内容。学习通会自动进入作业栏目并读取列表及分页；无法读取时显示具体错误。</p><button type="submit">保存设置</button><button id="scan" type="button">立即同步全部来源</button></form></details><p id="result" role="status"></p><section id="options-cloud"><h2>电脑关机后继续同步作业</h2><p>此授权仅适用于下方三个作业网站。人大课表与考试通过本机教务登录状态导入，不向云端保存教务登录凭据。</p><p>云端每 <span id="cloud-frequency">15</span> 分钟读取已授权的作业列表。启用时会把这三个网站的作业列表请求令牌及相关 Cookie，通过 HTTPS 发送到当前账号的看板服务器，用独立密钥加密保存。不会读取登录表单、账号密码、答案或成绩。网站登录失效或拒绝云端访问时仍需重新授权。</p><label class="check"><input id="cloud-consent" type="checkbox">我同意将上述登录授权保存在当前账号的云端看板</label><button id="cloud-authorize" type="button">授权并启用云端采集</button><p id="cloud-result" role="status">尚未授权。可在看板中随时关闭云端并删除授权。</p><div id="cloud-sources" aria-live="polite"></div></section></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>RUChecklist · 扩展设置</title><link rel="stylesheet" href="options.css"><script src="options.js" defer></script></head>
+<body>
+  <p class="eyebrow">RUChecklist <span id="version"></span></p>
+  <h1>扩展设置</h1>
+  <p><a id="open-board" href="https://campus-task-board.pages.dev/" target="_blank" rel="noopener noreferrer">打开看板 · 来源与同步 ↗</a></p>
+  <p class="hint">安装、连接和网站配置，按看板内的清单操作。</p>
+  <p id="result" role="status"></p>
+  <section id="options-cloud">
+    <h2>云端授权</h2>
+    <p>为已配置的 SmartEstu、课堂派、学习通启用关机后同步，每 <span id="cloud-frequency">15</span> 分钟检查。微人大仍由电脑浏览器同步。</p>
+    <p class="hint">启用后，列表请求令牌和相关 Cookie 将通过 HTTPS 上传至当前账号的看板并加密保存；不上传密码、答案或成绩。可在看板关闭并删除授权。</p>
+    <label class="check"><input id="cloud-consent" type="checkbox">我同意将上述登录授权保存在当前账号的云端看板</label>
+    <button id="cloud-authorize" type="button">授权并启用云端采集</button>
+    <p id="cloud-result" role="status">尚未授权</p><div id="cloud-sources" aria-live="polite"></div>
+  </section>
+  <section class="reload-section">
+    <button id="reload-extension" type="button">重新加载此扩展</button>
+    <p class="hint">启用本机现有文件；更新步骤见看板清单第 1 步。</p>
+    <p id="reload-result" role="status"></p>
+  </section>
+  <details id="legacy-settings"><summary>旧版手动连接</summary>
+    <p id="draft-state" role="status">输入自动保留，保存后生效。</p>
+    <form id="settings">
+      <label for="url">看板地址</label><input id="url" type="url" placeholder="https://你的看板地址" required>
+      <label for="token">配对码</label><input id="token" type="password" required autocomplete="off">
+      <details><summary>旧版网站配置</summary>
+        <label for="smartestu">SmartEstu</label><input id="smartestu" type="url" placeholder="https://smartestu.cn/assignment">
+        <label for="ketangpai">课堂派</label><input id="ketangpai" type="url" placeholder="https://www.ketangpai.com/…">
+        <label for="chaoxing">学习通</label><input id="chaoxing" type="url" placeholder="https://mooc2-ans.chaoxing.com/…">
+      </details>
+      <label class="check"><input id="enabled" type="checkbox">浏览器打开时每 15 分钟检查</label>
+      <button type="submit">保存设置</button><button id="scan" type="button">一键同步</button>
+    </form>
+  </details>
+</body></html>

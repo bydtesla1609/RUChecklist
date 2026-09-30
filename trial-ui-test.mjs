@@ -58,7 +58,16 @@ try {
   await page.waitForFunction(()=>{const target=document.getElementById("cloud-authorize").getBoundingClientRect(),frame=document.getElementById("demo-highlight").getBoundingClientRect();return target.top>=0 && target.bottom<=innerHeight && Math.abs(frame.top-Math.max(8,target.top-5))<2;});
   await page.locator("#demo-dialog").evaluate(el=>Promise.all(el.getAnimations({subtree:true}).map(animation=>animation.finished)));await page.screenshot({path:"data/screenshots/demo-cloud-mobile.png"});
   await page.locator("#demo-skip").click();await page.locator("#sources-button").click();
+  await page.evaluate(()=>checkCloud());
+  let staleCloudRoute,receivedCloud;
+  const cloudRequested=new Promise(resolve=>{receivedCloud=resolve;});
+  await page.route("**/api/cloud",route=>{staleCloudRoute=route;receivedCloud();});
+  await page.evaluate(()=>{window.pendingCloudCheck=checkCloud();});await cloudRequested;
   await page.locator("#sources-dialog .close-dialog").click();await page.locator("#logout").click();await page.locator("#logout-dialog").waitFor({state:"visible"});await page.locator("#logout-dialog .close-dialog").click();assert.equal(await page.locator("#workspace").isVisible(),true);await page.locator("#logout").click();await page.locator("#confirm-logout").click();await page.locator("#login").waitFor({state:"visible"});
+  await staleCloudRoute.fulfill({contentType:"application/json",body:JSON.stringify({available:true,enabled:true,sources:{smartestu:{error_code:"auth_expired",auth_expired_at:"old-account"}}})});
+  await page.evaluate(()=>window.pendingCloudCheck);await page.unroute("**/api/cloud");
+  assert.equal(await page.evaluate(()=>cloudState===null),true,"late cloud responses must not restore a signed-out account's state");
+  assert.equal(await page.locator("#login-expired-dialog").isVisible(),false);assert.equal(await page.locator("#expired-sites").textContent(),"");
   assert.equal(await page.locator("#website-list .website-row").count(),0);
   await page.locator("#auth-login").click();await page.locator("#username").fill("trial_student");await page.locator("#password").fill("Ab1234");await page.locator("#login-form button[type=submit]").click();await page.locator("#workspace").waitFor({state:"visible"});
   await page.locator("#sources-button").click();await page.locator("#website-list a").filter({hasText:"course.example"}).waitFor();await page.locator("#sources-dialog .close-dialog").click();

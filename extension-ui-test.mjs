@@ -34,6 +34,9 @@ try {
     return page;
   }
   let page=await openSettings();
+  assert.equal(await page.locator("h1").textContent(),"扩展设置");
+  assert.equal(await page.locator("#open-board").textContent(),"打开看板 · 来源与同步 ↗");
+  assert.equal(await page.locator("body").innerText().then(text=>text.includes("按四步指南")),false);
   assert.equal(await page.locator("#url").inputValue(),"https://campus-task-board.pages.dev");
   await page.locator("#url").fill("https://example.com/my-board");
   await page.locator("#reload-extension").click();
@@ -113,7 +116,7 @@ try {
   await capture.waitForFunction(()=>messages.some(m=>m.kind==="campus-cloud-recipe-v1"));
   assert.equal(await capture.evaluate(()=>messages.find(m=>m.kind==="campus-cloud-recipe-v1").recipe.headers.token),"synthetic-class-token");
   await captureContext.close();
-  await mkdir("data/screenshots",{recursive:true});await page.screenshot({path:"data/screenshots/extension.png",fullPage:true});
+  await page.locator("#legacy-settings").evaluate(el=>el.open=false);await mkdir("data/screenshots",{recursive:true});await page.screenshot({path:"data/screenshots/extension.png",fullPage:true});
   console.log("PASS: Chaoxing DOM metadata and submission statuses; settings UI preserves draft through tab switching, close/reopen and reload; permission denial retains draft; successful save clears draft and restores active settings. Chrome APIs simulated; user's Edge untouched.");
 } finally {
   await browser?.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));

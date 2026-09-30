@@ -3,6 +3,22 @@ import "./extension/cloud-routes.js";
 
 const sources=["smartestu","ketangpai","chaoxing"],stamp=()=>new Date().toISOString();
 const error=(status,message)=>Object.assign(new Error(message),{status});
+const loginExpired=()=>Object.assign(error(401,"网站登录已过期，请重新登录后同步"),{code:"auth_expired"});
+function loginURL(value,base) {
+  try {
+    const url=new URL(value,base),host=new URL(base).hostname;
+    const trusted=url.hostname===host || ["ketangpai.com","chaoxing.com"].some(domain=>host.endsWith(`.${domain}`) && (url.hostname===domain || url.hostname.endsWith(`.${domain}`)));
+    return trusted && /^https?:$/.test(url.protocol) && /(?:^|\/)(?:login|signin|sso|cas\/login)(?:[/.?;]|$)/i.test(url.pathname+url.hash.replace(/^#/,""));
+  }catch{return false;}
+}
+function jsonData(raw) {
+  let data;try{data=JSON.parse(raw);}catch{throw error(502,"教学网站返回的内容无法识别，请稍后重试");}
+  // Inspect the response envelope only: assignment titles may themselves mention login.
+  const code=data?.code ?? data?.status ?? data?.errorCode;
+  const message=[data?.message,data?.msg,data?.info,data?.error_description,typeof data?.error==="string"?data.error:null].filter(value=>typeof value==="string").join(" ");
+  if(String(code)==="401" || /未登[录陆]|(?:登[录陆]|会话|身份认证).{0,12}(?:过期|失效)|请.{0,5}(?:重新登[录陆]|先登[录陆])|(?:token|session).{0,20}(?:expired|invalid)|not[ _-]?logged[ _-]?in|unauthenticated/i.test(message)) throw loginExpired();
+  return data;
+}
 async function get(env,key) {return (await env.DB.prepare("SELECT value FROM settings WHERE key=?").bind(key).first())?.value;}
 async function put(env,key,value) {await env.DB.prepare("INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(key,value).run();}
 async function key(env) {
@@ -70,6 +86,7 @@ export async function saveCloudRecipe(env,source,input) {
   return {ok:true};
 }
 export async function learningHTML(html,url,Rewriter=globalThis.HTMLRewriter) {
+  if(html.trimStart().startsWith("{"))jsonData(html);
   if(!Rewriter) throw error(503,"云端 HTML 解析不可用");
   const rows=[];let row=null,hasList=false,emptyText="",pages="";
   const text=field=>({text(chunk){if(row)row[field]+=chunk.text;}});
@@ -90,17 +107,26 @@ export async function learningHTML(html,url,Rewriter=globalThis.HTMLRewriter) {
 }
 async function fetchList(recipe,fetcher) {
   const response=await fetcher(recipe.url,{method:recipe.method,headers:recipe.headers,...(recipe.body?{body:recipe.body}:{}),redirect:"manual",signal:AbortSignal.timeout(20000)});
-  if(response.status===401 || response.status===403 || (response.status>=300 && response.status<400)) throw error(401,"登录授权已失效或网站拒绝云端访问，请在浏览器登录后重新授权");
+  if(response.status===401) throw loginExpired();
+  if(response.status>=300 && response.status<400) {
+    if(loginURL(response.headers.get("location") || "",recipe.url)) throw loginExpired();
+    throw error(502,"网站跳转至其他页面，请在浏览器检查入口后重试");
+  }
+  if(response.status===403) throw error(403,"网站拒绝云端访问，请稍后重试或使用浏览器同步");
   if(!response.ok) throw error(502,`教学网站暂时不可用（HTTP ${response.status}）`);
   const reader=response.body.getReader(),chunks=[];let size=0;
   for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>4*1024*1024){await reader.cancel();throw error(502,"作业列表过大，请按课程授权");}chunks.push(value);}
-  const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}return new TextDecoder().decode(bytes);
+  const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
+  const raw=new TextDecoder().decode(bytes);
+  if(raw.trimStart().startsWith("<") && /<input\b[^>]*\btype\s*=\s*["']?password\b/i.test(raw) && /登[录陆]|sign[ -]?in|log[ -]?in/i.test(raw)) throw loginExpired();
+  return raw;
 }
 async function smartSession(recipe,fetcher) {
   // SmartEstu binds list requests to the current cookie session and CSRF token.
   const raw=await fetchList({url:"https://smartestu.cn/api/auth/session",method:"GET",headers:{cookie:recipe.headers.cookie || "","x-auth-protocol":"cookie-v1"}},fetcher);
-  let session;try{session=JSON.parse(raw);}catch{}
-  if(!session || [session.sessionContext,session.csrfToken].some(value=>typeof value!=="string" || !value || value.length>16000 || /[\r\n]/.test(value))) throw error(401,"SmartEstu 登录授权已失效，请在浏览器登录后重新授权");
+  const session=jsonData(raw);
+  if(session===null || session?.authenticated===false || session && !Object.keys(session).length) throw loginExpired();
+  if(!session || [session.sessionContext,session.csrfToken].some(value=>typeof value!=="string" || !value || value.length>16000 || /[\r\n]/.test(value))) throw error(502,"SmartEstu 登录验证返回格式异常，请稍后重试");
   return {...recipe,headers:{...recipe.headers,"x-auth-protocol":"cookie-v1","x-session-context":session.sessionContext,"x-csrf-token":session.csrfToken}};
 }
 export async function runCloud(env,importBatch,{fetcher=fetch,Rewriter=globalThis.HTMLRewriter,source:onlySource}={}) {
@@ -133,7 +159,7 @@ export async function runCloud(env,importBatch,{fetcher=fetch,Rewriter=globalThi
               url.searchParams.set("pageNum",page);const more=await learningHTML(await fetchList({...recipe,url:url.href},fetcher),url.href,Rewriter);parsed.push(...more.tasks);
             }
           } else {
-            let data;try{data=JSON.parse(raw);}catch{throw error(401,"教学网站没有返回作业数据，请重新登录并授权");}
+            const data=jsonData(raw);
             parsed=CampusParsers.parse(source,recipe.url,data,recipe.page_url);
             if(parsed===null) throw error(502,"未识别到作业列表，请重新授权并确认课程入口");
             if(source==="smartestu" && Number(data.data?.pageTotal)>1) {
@@ -144,7 +170,7 @@ export async function runCloud(env,importBatch,{fetcher=fetch,Rewriter=globalThi
               for(let page=1;page<=total;page++) {
                 if(page===Number(data.data.pageNo || parameters.pageNo || 1)) continue;
                 if(++requestCount>5) throw error(502,"SmartEstu 作业超过云端单次 5 页上限，请分课程授权");
-                const more=JSON.parse(await fetchList({...recipe,body:JSON.stringify({...parameters,pageNo:page})},fetcher));
+                const more=jsonData(await fetchList({...recipe,body:JSON.stringify({...parameters,pageNo:page})},fetcher));
                 const tasks=CampusParsers.parse(source,recipe.url,more,recipe.page_url);
                 if(tasks===null) throw error(502,`SmartEstu 第 ${page} 页未返回作业列表`);
                 parsed.push(...tasks);
@@ -156,9 +182,10 @@ export async function runCloud(env,importBatch,{fetcher=fetch,Rewriter=globalThi
         if(await get(env,"cloud_enabled")!=="1") break;
         const all=[...tasks.values()];let changed=0;
         for(let start=0;start<Math.max(1,all.length);start+=30) changed+=(await importBatch({source,tasks:all.slice(start,start+30),task_count:all.length})).changed;
-        result[source]={...state,last_attempt:started,last_success:stamp(),count:all.length,status_count:all.filter(task=>task.status).length,changed,error:null};
+        result[source]={...state,last_attempt:started,last_success:stamp(),count:all.length,status_count:all.filter(task=>task.status).length,changed,error:null,error_code:null,auth_expired_at:null};
       } catch(cause) {
-        result[source]={...state,last_attempt:started,error:cause.status?cause.message:"云端采集失败，请重新授权或稍后重试"};
+        const expired=cause.code==="auth_expired";
+        result[source]={...state,last_attempt:started,error:cause.status?cause.message:"云端采集暂时失败，请稍后重试",error_code:expired?"auth_expired":null,auth_expired_at:state.auth_expired_at || (expired?started:null)};
       }
       // Revocation must never resurrect stored credentials or an enabled status.
       await env.DB.prepare("INSERT INTO settings(key,value) SELECT ?,? WHERE EXISTS (SELECT 1 FROM settings WHERE key='cloud_enabled' AND value='1') ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(`cloud_state_${source}`,JSON.stringify(result[source])).run();
