@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "RUChecklist · 校园同步",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "将已登录的教学网站作业、人大课表及考试日程同步至个人看板。",
   "permissions": [
     "storage",
@@ -18,7 +18,11 @@
     "https://campus-task-board.pages.dev/*",
     "https://jw.ruc.edu.cn/*",
     "https://ruchecklist-trial.pages.dev/*",
-    "https://www.zhifz.com/*"
+    "https://www.zhifz.com/*",
+    "https://k.ruc.edu.cn/*",
+    "https://ruc.thusaac.com/*",
+    "http://yoj.ruc.edu.cn/*",
+    "https://yoj.ruc.edu.cn/*"
   ],
   "optional_host_permissions": [
     "https://*/*",
@@ -57,10 +61,15 @@
         "https://mooc1-api.chaoxing.com/*",
         "https://mooc1-1.chaoxing.com/*",
         "https://mooc1-2.chaoxing.com/*",
-        "https://www.zhifz.com/*"
+        "https://www.zhifz.com/*",
+        "https://k.ruc.edu.cn/*",
+        "https://ruc.thusaac.com/*",
+        "http://yoj.ruc.edu.cn/*",
+        "https://yoj.ruc.edu.cn/*"
       ],
       "js": [
         "parsers.js",
+        "ruc-adapters.js",
         "content.js"
       ],
       "run_at": "document_start",
@@ -95,6 +104,21 @@
         "academic-content.js"
       ],
       "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://k.ruc.edu.cn/*",
+        "https://ruc.thusaac.com/*"
+      ],
+      "js": [
+        "cloud-routes.js",
+        "parsers.js",
+        "ruc-adapters.js",
+        "ruc-capture.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true
     }
   ],
   "optional_permissions": [

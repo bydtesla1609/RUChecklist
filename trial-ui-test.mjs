@@ -58,6 +58,15 @@ try {
   await page.getByRole("button",{name:"同步：智夫子",exact:true}).click();
   await page.waitForFunction(()=>fixtureMessages.some(message=>message.command==="scan" && message.source==="zhifz"));
   assert.equal(await page.locator("#sources-list .source-sync").count(),4);
+  await addWebsite("https://k.ruc.edu.cn/UserClient/homePage.html");await page.locator("#source-links-result").filter({hasText:"1.8.0"}).waitFor();
+  await page.evaluate(()=>fixtureVersion="1.8.0");await page.locator("#collector-recheck").click();
+  await addWebsite("http://yoj.ruc.edu.cn/index.php/index/course/detail.html");await addWebsite("https://ruc.thusaac.com/");
+  for(const [name,source] of [["YOJ","yoj"],["人大未来课堂","weilai"],["TUOJ","tuoj"]]){
+    const scans=await page.evaluate(()=>fixtureMessages.length);
+    await page.getByRole("button",{name:`同步：${name}`,exact:true}).click();
+    await page.waitForFunction(({source,scans})=>fixtureMessages.slice(scans).some(message=>message.command==="scan" && message.source===source),{source,scans});
+  }
+  assert.equal(await page.locator("#sources-list .source-sync").count(),7);
   await mkdir("data/screenshots",{recursive:true});await page.screenshot({path:"data/screenshots/trial-guide-desktop.png"});
   for(const width of [320,390,768]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);}
   await page.setViewportSize({width:390,height:844});await page.screenshot({path:"data/screenshots/trial-guide-mobile.png"});

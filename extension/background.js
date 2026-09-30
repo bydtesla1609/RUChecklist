@@ -1,4 +1,4 @@
-const SOURCES={zhifz:"https://www.zhifz.com/#/zuoye",smartestu:"https://smartestu.cn/assignment",ketangpai:"https://www.ketangpai.com/",chaoxing:"https://mooc2-ans.chaoxing.com/"};
+const SOURCES={yoj:"http://yoj.ruc.edu.cn/index.php/index/course/detail.html",weilai:"https://k.ruc.edu.cn/UserClient/homePage.html",tuoj:"https://ruc.thusaac.com/",zhifz:"https://www.zhifz.com/#/zuoye",smartestu:"https://smartestu.cn/assignment",ketangpai:"https://www.ketangpai.com/",chaoxing:"https://mooc2-ans.chaoxing.com/"};
 SOURCES.ruc_courses="https://jw.ruc.edu.cn/Njw2017/index.html#/student/student-course-list/";
 SOURCES.ruc_exams="https://jw.ruc.edu.cn/Njw2017/index.html#/student/test-arrange-search/";
 const BOARD_ORIGIN="https://campus-task-board.pages.dev";
@@ -13,7 +13,7 @@ function sourceFor(url) {
     if(/^#\/student\/student-course-list(?:\/|$)/.test(parsed.hash))return "ruc_courses";
     return null;
   }
-  return host==="www.zhifz.com"?"zhifz":host==="smartestu.cn"?"smartestu":host==="www.ketangpai.com"?"ketangpai":/(^|\.)chaoxing\.com$/.test(host)?"chaoxing":null;
+  return ({"yoj.ruc.edu.cn":"yoj","k.ruc.edu.cn":"weilai","ruc.thusaac.com":"tuoj"})[host] || (host==="www.zhifz.com"?"zhifz":host==="smartestu.cn"?"smartestu":host==="www.ketangpai.com"?"ketangpai":/(^|\.)chaoxing\.com$/.test(host)?"chaoxing":null);
 }
 let queue=Promise.resolve(),cloudQueue=Promise.resolve(),scanning=null;
 async function cloudResult(source,message) {
@@ -27,14 +27,14 @@ async function cloudAPI(path,value) {
   const data=await response.json();if(!response.ok)throw new Error(data.error || "云端授权失败");return data;
 }
 async function cloudRecipe(message,sender) {
-  const {cloudEnabled,cloudZhifzEnabled,cloudRecipeCache={}}=await chrome.storage.local.get(["cloudEnabled","cloudZhifzEnabled","cloudRecipeCache"]);
-  if(!cloudEnabled || message.source==="zhifz" && !cloudZhifzEnabled) return {skipped:true};
+  const {cloudEnabled,cloudZhifzEnabled,cloudRucListsEnabled,cloudRecipeCache={}}=await chrome.storage.local.get(["cloudEnabled","cloudZhifzEnabled","cloudRucListsEnabled","cloudRecipeCache"]);
+  if(!cloudEnabled || message.source==="zhifz" && !cloudZhifzEnabled || ["weilai","tuoj"].includes(message.source) && !cloudRucListsEnabled) return {skipped:true};
   if(!sender.tab || sourceFor(sender.url)!==message.source || CampusCloudRoutes.source(message.recipe?.url)!==message.source) throw new Error("云端授权来源不匹配");
   const {boardURL,token}=await chrome.storage.local.get(["boardURL","token"]);
   if(!BOARD_ORIGINS.includes(boardURL) || !token)throw new Error("请先连接自己的看板");
   const response=await fetch(`${boardURL}/api/collector-config`,{credentials:"omit",headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(15000)});
   if(!response.ok)throw new Error("无法确认云端授权，请重新连接看板");
-  if(!(await response.json()).cloud_enabled){await chrome.storage.local.set({cloudEnabled:false,cloudZhifzEnabled:false,cloudRecipeCache:{}});return {skipped:true};}
+  if(!(await response.json()).cloud_enabled){await chrome.storage.local.set({cloudEnabled:false,cloudZhifzEnabled:false,cloudRucListsEnabled:false,cloudRecipeCache:{}});return {skipped:true};}
   if(!await chrome.permissions.contains({permissions:["cookies"]})) throw new Error("请在扩展设置中授权云端采集");
   if(!await chrome.permissions.contains({origins:[`${new URL(message.recipe.url).origin}/*`,...(message.source==="chaoxing"?["http://*.chaoxing.com/*","https://*.chaoxing.com/*"]:[])]})) throw new Error("缺少此平台的登录读取权限，请点击“授权并启用云端采集”补充权限");
   const cookies=await chrome.cookies.getAll({url:message.recipe.url});
@@ -100,14 +100,14 @@ async function performScan(force=false,academicOnly=false,onlySource) {
   const response=await fetch(`${boardURL}/api/collector-config`,{headers:{Authorization:`Bearer ${token}`},credentials:"omit",signal:AbortSignal.timeout(15000)});
   if(!response.ok) throw new Error("无法读取作业来源，请重新连接看板");
   const config=await response.json(),configuration=config.sources;
-  const entries=config.links===undefined?Object.entries(SOURCES).filter(([source])=>source!=="zhifz" || sourceURLs[source] || configuration?.[source]).map(([source,url])=>({source,url:sourceURLs[source] || configuration?.[source]?.url || url})):
+  const entries=config.links===undefined?Object.entries(SOURCES).filter(([source])=>!["zhifz","yoj","weilai","tuoj"].includes(source) || sourceURLs[source] || configuration?.[source]).map(([source,url])=>({source,url:sourceURLs[source] || configuration?.[source]?.url || url})):
     config.links.filter(link=>link.source).flatMap(link=>link.source==="ruc_courses"?[{source:"ruc_courses",url:SOURCES.ruc_courses},{source:"ruc_exams",url:SOURCES.ruc_exams}]:[link]);
   const selected=[...new Map(entries.filter(link=>(!academicOnly || link.source.startsWith("ruc_")) && (!onlySource || link.source===onlySource)).map(link=>[link.url,link])).values()];
   if(!selected.length)throw new Error("请在网页的第 3 步保存已适配网站的链接");
   await chrome.storage.local.set({configuredSources:[...new Set(entries.map(link=>link.source))]});
   for(const [index,{source,url:address}] of selected.entries()) {
     const candidate=new URL(address);
-    if(candidate.protocol!=="https:" || candidate.username || candidate.password || sourceFor(candidate.href)!==source) throw new Error(`${source} 作业页地址不正确`);
+    if((candidate.protocol!=="https:" && !(source==="yoj" && candidate.protocol==="http:")) || candidate.username || candidate.password || sourceFor(candidate.href)!==source) throw new Error(`${source} 作业页地址不正确`);
     const url=candidate.href;
     const key=config.links===undefined?source:`${source}:${url}`;
     let tab;try{if(managedTabs[key]) tab=await chrome.tabs.get(managedTabs[key]);}catch{}
@@ -143,7 +143,7 @@ async function boardControl(message,sender) {
     const previous=await chrome.storage.local.get(["boardURL","account"]);
     const changed=previous.boardURL!==origin || (previous.account || "personal")!==(configuration.account || "personal");
     const configured=(configuration.links || Object.keys(SOURCES).map(source=>({source}))).flatMap(link=>link.source==="ruc_courses"?["ruc_courses","ruc_exams"]:link.source?[link.source]:[]);
-    await chrome.storage.local.set({boardURL:origin,account:configuration.account || "personal",token:message.token,enabled:true,configuredSources:configured,importCache:{},sourceResults:{},managedTabs:{},sourceURLs:{},...(changed?{cloudEnabled:false,cloudZhifzEnabled:false,cloudRecipeCache:{},cloudSourceResults:{}}:{})});await configure();
+    await chrome.storage.local.set({boardURL:origin,account:configuration.account || "personal",token:message.token,enabled:true,configuredSources:configured,importCache:{},sourceResults:{},managedTabs:{},sourceURLs:{},...(changed?{cloudEnabled:false,cloudZhifzEnabled:false,cloudRucListsEnabled:false,cloudRecipeCache:{},cloudSourceResults:{}}:{})});await configure();
   }
   const data=await chrome.storage.local.get(["boardURL","token","enabled","sourceResults","lastResult","account"]);
   const connected=data.boardURL===origin && !!data.token && (data.account || "personal")===(message.account || "personal");
@@ -159,14 +159,14 @@ async function boardControl(message,sender) {
 }
 chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   if(message.type==="collection-context" && sender.tab) {
-    chrome.storage.local.get(["managedTabs","cloudEnabled","cloudZhifzEnabled"]).then(({managedTabs={},cloudEnabled=false,cloudZhifzEnabled=false})=>reply({managed:Object.values(managedTabs).includes(sender.tab.id),cloudEnabled:cloudEnabled && (sourceFor(sender.url)!=="zhifz" || cloudZhifzEnabled)}));return true;
+    chrome.storage.local.get(["managedTabs","enabled","configuredSources","cloudEnabled","cloudZhifzEnabled","cloudRucListsEnabled"]).then(({managedTabs={},enabled=false,configuredSources=[],cloudEnabled=false,cloudZhifzEnabled=false,cloudRucListsEnabled=false})=>{const source=sourceFor(sender.url);reply({managed:Object.values(managedTabs).includes(sender.tab.id),enabled:enabled && configuredSources.includes(source),cloudEnabled:cloudEnabled && (source!=="zhifz" || cloudZhifzEnabled) && (!["weilai","tuoj"].includes(source) || cloudRucListsEnabled)});});return true;
   }
   if(message.type==="cloud-recipe" && sender.tab) {
     const current=cloudQueue.then(()=>cloudRecipe(message,sender));cloudQueue=current.catch(error=>cloudResult(message.source,error.message));
     current.then(reply).catch(error=>reply({error:error.message}));return true;
   }
   if(message.type==="cloud-authorize" && sender.url?.startsWith(chrome.runtime.getURL(""))) {
-    (async()=>{if(!await chrome.permissions.contains({permissions:["cookies"]}))throw new Error("需要先允许云端登录授权");await cloudAPI("/api/cloud-authorize",{});await chrome.storage.local.set({cloudEnabled:true,cloudZhifzEnabled:true,cloudRecipeCache:{},cloudLastResult:"正在读取已配置网站的登录授权…"});await scan(true);return {ok:true};})().then(reply).catch(error=>reply({error:error.message}));return true;
+    (async()=>{if(!await chrome.permissions.contains({permissions:["cookies"]}))throw new Error("需要先允许云端登录授权");await cloudAPI("/api/cloud-authorize",{});await chrome.storage.local.set({cloudEnabled:true,cloudZhifzEnabled:true,cloudRucListsEnabled:true,cloudRecipeCache:{},cloudLastResult:"正在读取已配置网站的登录授权…"});await scan(true);return {ok:true};})().then(reply).catch(error=>reply({error:error.message}));return true;
   }
   if(message.type==="capture" && sender.tab) {
     const current=queue.then(()=>upload(message,sender));

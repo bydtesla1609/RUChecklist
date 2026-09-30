@@ -18,6 +18,6 @@ if(trial) {
 }
 await copyFile(new URL("./cloud.mjs",import.meta.url),new URL("cloud.mjs",output));
 await mkdir(new URL("extension/",output),{recursive:true});
-for(const name of ["parsers.js","cloud-routes.js","academic-parser.js"]) await copyFile(new URL(`./extension/${name}`,import.meta.url),new URL(`extension/${name}`,output));
+for(const name of ["parsers.js","cloud-routes.js","academic-parser.js","ruc-adapters.js"]) await copyFile(new URL(`./extension/${name}`,import.meta.url),new URL(`extension/${name}`,output));
 await writeFile(new URL("_routes.json",output),JSON.stringify({version:1,include:["/*"],exclude:trial?["/","/static/app.js","/static/style.css","/static/icon.svg","/extension.zip"]:[]}));
 console.log(`Pages package ready: dist/${trial?"trial":"pages"}.`);

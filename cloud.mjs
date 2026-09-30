@@ -1,7 +1,8 @@
 import "./extension/parsers.js";
 import "./extension/cloud-routes.js";
+import "./extension/ruc-adapters.js";
 
-const sources=["smartestu","ketangpai","chaoxing","zhifz"],stamp=()=>new Date().toISOString();
+const sources=["smartestu","ketangpai","chaoxing","zhifz","weilai","tuoj"],stamp=()=>new Date().toISOString();
 const error=(status,message)=>Object.assign(new Error(message),{status});
 const loginExpired=()=>Object.assign(error(401,"网站登录已过期，请重新登录后同步"),{code:"auth_expired"});
 function loginURL(value,base) {
@@ -16,7 +17,7 @@ function jsonData(raw) {
   // Inspect the response envelope only: assignment titles may themselves mention login.
   const code=data?.code ?? data?.status ?? data?.errorCode;
   const message=[data?.message,data?.msg,data?.info,data?.error_description,typeof data?.error==="string"?data.error:null].filter(value=>typeof value==="string").join(" ");
-  if(String(code)==="401" || /未登[录陆]|(?:登[录陆]|会话|身份认证).{0,12}(?:过期|失效)|请.{0,5}(?:重新登[录陆]|先登[录陆])|(?:token|session).{0,20}(?:expired|invalid)|not[ _-]?logged[ _-]?in|unauthenticated/i.test(message)) throw loginExpired();
+  if(String(code)==="401" || data?.stat===0 && data.fieldErrors?.some(item=>String(item.field)==="500000") || /未登[录陆]|(?:登[录陆]|会话|身份认证).{0,12}(?:过期|失效)|请.{0,5}(?:重新登[录陆]|先登[录陆])|(?:token|session).{0,20}(?:expired|invalid)|not[ _-]?logged[ _-]?in|unauthenticated/i.test(message)) throw loginExpired();
   return data;
 }
 async function get(env,key) {return (await env.DB.prepare("SELECT value FROM settings WHERE key=?").bind(key).first())?.value;}
@@ -37,7 +38,7 @@ async function open(env,source,value) {
 }
 export function validateRecipe(source,recipe) {
   if(!sources.includes(source) || !recipe || CampusCloudRoutes.source(recipe.url)!==source || recipe.url.length>4000) throw error(400,"仅允许已支持平台的作业列表接口");
-  if(!["GET","POST"].includes(recipe.method) || (["chaoxing","zhifz"].includes(source) && recipe.method!=="GET")) throw error(400,"不允许此请求方法");
+  if(!["GET","POST"].includes(recipe.method) || (["chaoxing","zhifz","tuoj"].includes(source) && recipe.method!=="GET") || source==="weilai" && recipe.method!=="POST") throw error(400,"不允许此请求方法");
   const headers={};
   for(const [name,value] of Object.entries(recipe.headers || {})) {
     if(![...CampusCloudRoutes.headers,"cookie"].includes(name.toLowerCase()) || typeof value!=="string" || value.length>16000 || /[\r\n]/.test(value)) throw error(400,"授权请求头格式不正确");
@@ -49,7 +50,7 @@ export function validateRecipe(source,recipe) {
   if(body && !/^(application\/json|application\/x-www-form-urlencoded)(;|$)/i.test(headers["content-type"] || "")) throw error(400,"仅支持 JSON 或表单列表参数");
   if(/(?:["&]|^)(?:password|passwd|pwd)["=\s:]/i.test(body)) throw error(400,"禁止上传账号密码");
   const page=new URL(recipe.page_url || recipe.url);
-  const allowed=source==="smartestu"?page.hostname==="smartestu.cn":source==="ketangpai"?page.hostname==="www.ketangpai.com":source==="zhifz"?page.hostname==="www.zhifz.com":/(^|\.)chaoxing\.com$/.test(page.hostname);
+  const allowed=source==="weilai"?page.hostname==="k.ruc.edu.cn":source==="tuoj"?page.hostname==="ruc.thusaac.com":source==="smartestu"?page.hostname==="smartestu.cn":source==="ketangpai"?page.hostname==="www.ketangpai.com":source==="zhifz"?page.hostname==="www.zhifz.com":/(^|\.)chaoxing\.com$/.test(page.hostname);
   if(!allowed || page.protocol!=="https:" || page.username || page.password || page.href.length>4000) throw error(400,"课程页面与来源不匹配");
   return {url:new URL(recipe.url).href,method:recipe.method,headers,body,page_url:page.href};
 }
@@ -60,6 +61,7 @@ function recipeId(recipe) {
   if(CampusCloudRoutes.source(url.href)==="smartestu" && body && typeof body==="object") delete body.pageNo;
   if(CampusCloudRoutes.source(url.href)==="chaoxing") url.searchParams.delete("pageNum");
   if(CampusCloudRoutes.source(url.href)==="zhifz") url.searchParams.delete("状态");
+  if(CampusCloudRoutes.source(url.href)==="weilai" && body && typeof body==="object")delete body.page;
   return JSON.stringify([url.origin,url.pathname,clean(Object.fromEntries(url.searchParams)),clean(body)]);
 }
 export async function cloudStatus(env) {
@@ -150,9 +152,15 @@ export async function runCloud(env,importBatch,{fetcher=fetch,Rewriter=globalThi
         for(const stored of recipes) {
           let recipe=validateRecipe(source,stored);
           if(source==="smartestu") recipe=await smartSession(recipe,fetcher);
-          if(++requestCount>5) throw error(502,"此平台列表超过云端单次 5 页上限，请分课程授权");
+          const courseLists=["weilai","tuoj"].includes(source);
+          if(!courseLists && ++requestCount>5) throw error(502,"此平台列表超过云端单次 5 页上限，请分课程授权");
           let parsed;
-          if(source==="zhifz") {
+          if(courseLists) {
+            parsed=await RUCLists.collect(source,recipe,async next=>{
+              if(++requestCount>30)throw error(502,"课程列表较多，请打开具体课程后重新授权");
+              return jsonData(await fetchList(validateRecipe(source,next),fetcher));
+            }).catch(cause=>{if(cause.status)throw cause;throw error(502,cause.message);});
+          } else if(source==="zhifz") {
             const urls=CampusCloudRoutes.zhifzLists(recipe.url);parsed=[];
             for(const [index,url] of urls.entries()) {
               if(index && ++requestCount>5)throw error(502,"智夫子列表超过单次同步上限");

@@ -7,7 +7,7 @@ let refreshSequence = 0, lastPayload = "", toastTimer, taskCategory = "作业", 
 let draftAttachments = [], uploading = false;
 let timetables=[], courseSemester=null, courseWeek="all";
 let collectorState=null, cloudState=null, syncing=false;
-let syncSession=0, cloudCheckSequence=0, lastCloudCheck=0;
+let syncSession=0, cloudCheckSequence=0, collectorCheckSequence=0, lastCloudCheck=0;
 const loginRemindersSeen=new Set();
 let sourceLinksState=null, boardAccount="personal", trialMode=false;
 let authMode="login", accountName="", registrationOpen=false;
@@ -589,7 +589,7 @@ function collectorCommand(command,extra={},timeout=18000) {
 function updateSyncControls() {
   const connected=!!collectorState?.connected;
   $("collector-controls").hidden=!collectorState || connected;
-  $("install-state").textContent=collectorState?`已安装 v${collectorState.version} · ${(collectorState.version || "0").localeCompare("1.7.0",undefined,{numeric:true})<0?"可更新至 v1.7.0":"已是最新版本"}`:"只需安装一次";
+  $("install-state").textContent=collectorState?`已安装 v${collectorState.version} · ${(collectorState.version || "0").localeCompare("1.8.0",undefined,{numeric:true})<0?"可更新至 v1.8.0":"已是最新版本"}`:"只需安装一次";
   $("collector-options").disabled=!collectorState;
   $("browser-settings").hidden=!connected;
   $("collector-scan").disabled=syncing || !(cloudState?.enabled || (connected && collectorState.enabled));
@@ -600,11 +600,15 @@ function updateSyncControls() {
   $("cloud-revoke").disabled=syncing || !cloudState?.enabled;
 }
 async function checkCollector() {
+  const session=syncSession,sequence=++collectorCheckSequence;
   try {
-    collectorState=await collectorCommand("status",{},1800);
+    const result=await collectorCommand("status",{},1800);
+    if(session!==syncSession || sequence!==collectorCheckSequence)return;
+    collectorState=result;
     $("collector-state").textContent=collectorState.connected?`浏览器扩展已连接 · v${collectorState.version}${collectorState.enabled?"":" · 浏览器导入已暂停"}`:"已检测到扩展，点击下方按钮连接。";
     $("collector-enabled").checked=collectorState.enabled;
   }catch {
+    if(session!==syncSession || sequence!==collectorCheckSequence)return;
     collectorState=null;
     $("collector-state").textContent="此浏览器未连接扩展。手机可直接查看已同步的任务。";
   }
@@ -650,7 +654,7 @@ $("source-links-form").onsubmit=event=>{
 };
 $("collector-recheck").onclick=async()=>{
   await checkCollector();
-  if(collectorState)$("guide-install").open=collectorState.version!=="1.7.0";
+  if(collectorState)$("guide-install").open=collectorState.version!=="1.8.0";
   else {sessionStorage.setItem("resume-setup","1");location.reload();}
 };
 $("copy-extension-page").onclick=async()=>{const url=/Edg\//.test(navigator.userAgent)?"edge://extensions":"chrome://extensions";try{await navigator.clipboard.writeText(url);notice("已复制，请粘贴到浏览器地址栏打开");}catch{notice(`请复制 ${url} 到浏览器地址栏`);}};
@@ -664,18 +668,19 @@ $("collector-connect").onclick=async()=>{
   }catch(error){$("source-error").textContent=error.message;}finally{$("collector-connect").disabled=false;}
 };
 function requireSelectiveSync(source) {
-  const zhifz=source==="zhifz" || !source && sourceLinksState?.some(link=>link.source==="zhifz"),version=zhifz?"1.7.0":"1.6.0";
+  const modern=["yoj","weilai","tuoj"].includes(source) || !source && sourceLinksState?.some(link=>["yoj","weilai","tuoj"].includes(link.source));
+  const zhifz=source==="zhifz" || !source && sourceLinksState?.some(link=>link.source==="zhifz"),version=modern?"1.8.0":zhifz?"1.7.0":"1.6.0";
   if((collectorState?.version || "0").localeCompare(version,undefined,{numeric:true})<0) {
     $("guide-install").open=true;
-    throw new Error(`${zhifz?"智夫子":"单独"}同步需要扩展 v${version}，请按第 1 步替换文件、重新加载，再刷新看板。`);
+    throw new Error(`${modern?"此网站":zhifz?"智夫子":"单独"}同步需要扩展 v${version}，请按第 1 步替换文件、重新加载，再刷新看板。`);
   }
 }
 async function syncSources(source) {
   if(syncing)return;
   syncing=true;updateSyncControls();renderSources();$("source-error").textContent="";
   try {
-    const jobs=[],cloudEligible=!source || !source.startsWith("ruc_");
-    if(collectorState?.connected && collectorState.enabled && (source || sourceLinksState?.some(link=>link.source==="zhifz")))requireSelectiveSync(source);
+    const jobs=[],cloudEligible=!source || !source.startsWith("ruc_") && !sources.find(item=>item.id===source)?.browser_only;
+    if(collectorState?.connected && collectorState.enabled && (source || sourceLinksState?.some(link=>["zhifz","yoj","weilai","tuoj"].includes(link.source))))requireSelectiveSync(source);
     if(cloudState?.enabled && cloudEligible)jobs.push(api("/api/cloud/run","POST",source?{source}:{},60000).then(result=>{
       if(result.running)throw new Error("云端正在同步，请稍后再试");
       const errors=Object.values(result).filter(item=>item?.error).map(item=>item.error);if(errors.length)throw new Error(errors.join("；"));
@@ -698,8 +703,8 @@ $("collector-enabled").onchange=async()=>{
 };
 $("collector-options").onclick=()=>collectorCommand("options").catch(error=>{$("source-error").textContent=error.message;});
 $("cloud-authorize").onclick=()=>{
-  const version=sourceLinksState?.some(link=>link.source==="zhifz")?"1.7.0":"1.5.1";
-  if((collectorState?.version || "0").localeCompare(version,undefined,{numeric:true})<0){$("guide-install").open=true;$("source-error").textContent="请先按第 1 步更新扩展至 v1.7.0，再授权云端采集。";return;}$("collector-options").click();
+  const version=sourceLinksState?.some(link=>["weilai","tuoj"].includes(link.source))?"1.8.0":sourceLinksState?.some(link=>link.source==="zhifz")?"1.7.0":"1.5.1";
+  if((collectorState?.version || "0").localeCompare(version,undefined,{numeric:true})<0){$("guide-install").open=true;$("source-error").textContent="请先按第 1 步更新扩展至 v1.8.0，再授权云端采集。";return;}$("collector-options").click();
 };
 async function checkCloud() {
   const session=syncSession,sequence=++cloudCheckSequence;lastCloudCheck=Date.now();
@@ -711,7 +716,7 @@ async function checkCloud() {
     cloudState=data;
     $("cloud-status").textContent=cloudState.enabled?`云端自动同步已开启 · 每 ${cloudState.interval_minutes || (trialMode?30:15)} 分钟`:"浏览器自动同步 · 每 15 分钟";
     $("cloud-grant-state").textContent=!cloudState.available?"此看板暂未配置云端同步":cloudState.enabled?`已开启 · 每 ${cloudState.interval_minutes || (trialMode?30:15)} 分钟检查一次`:"尚未开启 · 可按下方步骤授权";
-    $("sync-mode-note").textContent=cloudState.enabled?"已授权网站由云端持续采集，电脑关机也会更新。微人大课表与考试仍通过浏览器同步。":"尚未启用云端同步。如需关机后继续更新，请先完成第 4 步授权。";
+    $("sync-mode-note").textContent=cloudState.enabled?"已授权网站由云端持续采集，电脑关机也会更新。微人大课表、考试及 YOJ 仍通过浏览器同步。":"尚未启用云端同步。如需关机后继续更新，请先完成第 4 步授权。";
     updateSyncControls();renderSources();maybeLoginReminder();
   }catch(error){if(session!==syncSession || sequence!==cloudCheckSequence)return;$("cloud-status").textContent=error.message;$("cloud-grant-state").textContent="暂时无法读取授权状态，请重新打开此清单重试。";}
 }
@@ -746,24 +751,25 @@ function renderSources() {
   $("unsupported-links").replaceChildren(...(sourceLinksState || []).filter(link=>!link.source).map(link=>{const row=element("p",null,"hint");row.append(externalLink(`${link.name} ↗`,link.url),document.createTextNode(" · 尚未适配，请手动添加任务"));return row;}));
   $("sources-list").replaceChildren(...sources.filter(source=>sourceLinksState===null || selected.has(source.id)).map(source=>{
     const row=element("div",null,"source-row"),header=element("div");
-    const academic=source.kind==="academic";
-    const cloud=!academic && cloudState?.enabled?cloudState.sources?.[source.id]:null;
+    const academic=source.kind==="academic",browserOnly=academic || source.browser_only;
+    const cloud=!browserOnly && cloudState?.enabled?cloudState.sources?.[source.id]:null;
     const local=collectorState?.sourceResults?.[source.id];
     const seen=cloud?.last_success || source.last_seen;
     const fresh=seen && Date.now()-Date.parse(seen)<30*60000;
-    const error=!academic && cloudState?.enabled ? cloud?.error : (local?.error && (!seen || Date.parse(local.time)>Date.parse(seen)) ? local.error:source.error);
+    const error=cloud?.authorized ? cloud.error : (local?.error && (!seen || Date.parse(local.time)>Date.parse(seen)) ? local.error:source.error);
     const incomplete=!academic && (cloud?.last_success ? cloud.status_count<cloud.count : source.imported_count>source.status_count);
     const expired=needsLogin(source);
     const label=expired?"登录过期":error?"需处理":incomplete?"状态不完整":fresh?"已同步":seen?"等待更新":"待连接";
     header.append(expired?element("strong",source.name):externalLink(`${source.name} ↗`,sourceURL(source)),element("span",label,"state"+(fresh && !error && !incomplete?" connected":"")));
     const sync=element("button","同步","secondary source-sync");sync.type="button";sync.setAttribute("aria-label",`同步：${source.name}`);
-    sync.disabled=syncing || !(collectorState?.connected && collectorState.enabled || !academic && cloudState?.enabled && cloud?.authorized);
+    sync.disabled=syncing || !(collectorState?.connected && collectorState.enabled || !browserOnly && cloudState?.enabled && cloud?.authorized);
     sync.onclick=()=>syncSources(source.id);
     if(expired){const actions=element("div",null,"source-actions");actions.append(loginLink(source),sync);header.append(actions);}else header.append(sync);
     row.append(header);
     const total=cloud?.last_success?cloud.count:source.task_count;
     row.append(element("p",expired?"在已连接扩展的电脑浏览器重新登录并打开同步页面，再点此网站的“同步”。仍提示过期时，在第 4 步更新云端授权。":error || (seen?`${formatTime(seen)} · ${total} 项${academic?"日程":"作业"}${incomplete?" · 部分完成状态未识别":""}`:cloud?.authorized?"授权已保存，等待同步":"请连接扩展并登录此网站")));
-    if(!academic && cloudState?.enabled && !cloud?.authorized)row.append(element("p","此网站尚未授权云端采集，可在第 4 步更新授权。","hint"));
+    if(source.browser_only)row.append(element("p","在已连接扩展的浏览器打开课程或作业列表即可读取；此网站暂不支持云端采集。","hint"));
+    if(!browserOnly && cloudState?.enabled && !cloud?.authorized)row.append(element("p","此网站尚未授权云端采集，可在第 4 步更新授权。","hint"));
     return row;
   }));
 }
@@ -834,7 +840,7 @@ $("add-menu").replaceChildren(...CATEGORIES.map(category => {
 document.addEventListener("click", event => { if (!event.target.closest(".add-control") && !event.target.closest(".empty")) closeAddMenu(); });
 document.addEventListener("keydown", event => { if (event.key === "Escape" && !$("add-menu").hidden) { closeAddMenu(); $("add-task").focus(); } });
 $("add-task").onclick = startAdd;
-$("sources-button").onclick = () => { $("guide-install").open=!collectorState || collectorState.version!=="1.7.0";renderSources(); $("sources-dialog").showModal(); $("source-error").textContent=""; loadSourceLinks();checkCollector().then(()=>{if(!$("demo-dialog").open)$("guide-install").open=!collectorState || collectorState.version!=="1.7.0";}); checkCloud(); };
+$("sources-button").onclick = () => { $("guide-install").open=!collectorState || collectorState.version!=="1.8.0";renderSources(); $("sources-dialog").showModal(); $("source-error").textContent=""; loadSourceLinks();checkCollector().then(()=>{if(!$("demo-dialog").open)$("guide-install").open=!collectorState || collectorState.version!=="1.8.0";}); checkCloud(); };
 document.querySelectorAll(".close-dialog").forEach(button => button.onclick = () => button.closest("dialog").close());
 $("task-form").onsubmit = async event => {
   event.preventDefault(); $("save-task").disabled = true; $("task-error").textContent = "";

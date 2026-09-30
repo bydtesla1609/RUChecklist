@@ -1,6 +1,9 @@
 import {cloudStatus,enableCloud,revokeCloud,saveCloudRecipe,runCloud} from "./cloud.mjs";
 import "./extension/academic-parser.js";
 export const SOURCES = {
+  yoj: {name:"YOJ",url:"http://yoj.ruc.edu.cn/index.php/index/course/detail.html",browser_only:true},
+  weilai: {name:"人大未来课堂",url:"https://k.ruc.edu.cn/UserClient/homePage.html"},
+  tuoj: {name:"TUOJ",url:"https://ruc.thusaac.com/"},
   smartestu: {name: "SmartEstu", url: "https://smartestu.cn/assignment"},
   ketangpai: {name: "课堂派", url: "https://www.ketangpai.com/"},
   chaoxing: {name: "学习通", url: "https://mooc2-ans.chaoxing.com/"},
@@ -20,16 +23,16 @@ export function sourceLinks(values) {
   const unique=new Set();
   return values.map(value=>{
     const url=new URL(webURL(value,"作业页面链接"));
-    if(url.protocol!=="https:")fail(400,"请填写 HTTPS 作业页面链接");
+    if(url.protocol!=="https:" && !(url.protocol==="http:" && url.hostname==="yoj.ruc.edu.cn" && !url.port))fail(400,"请填写 HTTPS 链接；YOJ 支持其原有 HTTP 地址");
     const host=url.hostname;
-    const source=host==="smartestu.cn"?"smartestu":host==="www.ketangpai.com"?"ketangpai":host==="www.zhifz.com"?"zhifz":/(^|\.)chaoxing\.com$/.test(host)?"chaoxing":host==="jw.ruc.edu.cn"?"ruc_courses":null;
+    const source=({"yoj.ruc.edu.cn":"yoj","k.ruc.edu.cn":"weilai","ruc.thusaac.com":"tuoj"})[host] || (host==="smartestu.cn"?"smartestu":host==="www.ketangpai.com"?"ketangpai":host==="www.zhifz.com"?"zhifz":/(^|\.)chaoxing\.com$/.test(host)?"chaoxing":host==="jw.ruc.edu.cn"?"ruc_courses":null);
     return {url:url.href,source,name:source?SOURCES[source].name:host};
   }).filter(link=>{if(unique.has(link.url))return false;unique.add(link.url);return true;});
 }
 async function savedLinks(env) {
   const saved=await env.DB.prepare("SELECT value FROM settings WHERE key='source_links'").first();
   if(saved)return JSON.parse(saved.value);
-  return env.TRIAL_MODE?[]:sourceLinks(Object.entries(configuredSources(env)).filter(([id,source])=>id!=="zhifz" && (!source.kind || source.name==="人大课表")).map(([,source])=>source.url));
+  return env.TRIAL_MODE?[]:sourceLinks(Object.entries(configuredSources(env)).filter(([id,source])=>!["zhifz","yoj","weilai","tuoj"].includes(id) && (!source.kind || source.name==="人大课表")).map(([,source])=>source.url));
 }
 const CATEGORIES = ["作业", "课程", "考试", "活动", "会议"];
 const STATUSES = ["todo", "doing", "done"];
@@ -84,8 +87,8 @@ function webURL(value, label="链接") {
 function sourceURL(source,value,fallback) {
   if(!value) return fallback;
   const url=new URL(webURL(value,"作业网页"));
-  const domains={smartestu:["smartestu.cn"],ketangpai:["ketangpai.com"],chaoxing:["chaoxing.com"],zhifz:["www.zhifz.com"],ruc_courses:["jw.ruc.edu.cn"],ruc_exams:["jw.ruc.edu.cn"]}[source];
-  if(url.protocol!=="https:" || !domains.some(host=>url.hostname===host || url.hostname.endsWith(`.${host}`))) fail(400,"作业网页与平台不匹配");
+  const domains={yoj:["yoj.ruc.edu.cn"],weilai:["k.ruc.edu.cn"],tuoj:["ruc.thusaac.com"],smartestu:["smartestu.cn"],ketangpai:["ketangpai.com"],chaoxing:["chaoxing.com"],zhifz:["www.zhifz.com"],ruc_courses:["jw.ruc.edu.cn"],ruc_exams:["jw.ruc.edu.cn"]}[source];
+  if((url.protocol!=="https:" && !(source==="yoj" && url.protocol==="http:" && url.hostname==="yoj.ruc.edu.cn" && !url.port)) || !domains.some(host=>url.hostname===host || url.hostname.endsWith(`.${host}`))) fail(400,"作业网页与平台不匹配");
   return url.href;
 }
 function dateValue(value, label, required=false) {
@@ -321,7 +324,7 @@ async function route(request, env) {
   if(path==="/api/source-links" && method==="PUT") {
     const links=sourceLinks((await body(request)).urls);
     await db.prepare("INSERT INTO settings(key,value) VALUES ('source_links',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(JSON.stringify(links)).run();
-    if(env.TRIAL_MODE)for(const source of ["smartestu","ketangpai","chaoxing","zhifz"])if(!links.some(link=>link.source===source))await db.prepare("DELETE FROM settings WHERE key IN (?,?)").bind(`cloud_credential_${source}`,`cloud_state_${source}`).run();
+    if(env.TRIAL_MODE)for(const source of ["smartestu","ketangpai","chaoxing","zhifz","weilai","tuoj"])if(!links.some(link=>link.source===source))await db.prepare("DELETE FROM settings WHERE key IN (?,?)").bind(`cloud_credential_${source}`,`cloud_state_${source}`).run();
     return json({links});
   }
   if(path==="/api/cloud" && method==="GET") return json(await cloudStatus(env));
