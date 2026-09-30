@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "RUChecklist · 校园同步",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "description": "将已登录的教学网站作业、人大课表及考试日程同步至个人看板。",
   "permissions": [
     "storage",
@@ -17,7 +17,8 @@
     "https://mooc1-2.chaoxing.com/*",
     "https://campus-task-board.pages.dev/*",
     "https://jw.ruc.edu.cn/*",
-    "https://ruchecklist-trial.pages.dev/*"
+    "https://ruchecklist-trial.pages.dev/*",
+    "https://www.zhifz.com/*"
   ],
   "optional_host_permissions": [
     "https://*/*",
@@ -36,7 +37,8 @@
     {
       "matches": [
         "https://smartestu.cn/*",
-        "https://www.ketangpai.com/*"
+        "https://www.ketangpai.com/*",
+        "https://www.zhifz.com/*"
       ],
       "js": [
         "cloud-routes.js",
@@ -54,7 +56,8 @@
         "https://mooc1.chaoxing.com/*",
         "https://mooc1-api.chaoxing.com/*",
         "https://mooc1-1.chaoxing.com/*",
-        "https://mooc1-2.chaoxing.com/*"
+        "https://mooc1-2.chaoxing.com/*",
+        "https://www.zhifz.com/*"
       ],
       "js": [
         "parsers.js",

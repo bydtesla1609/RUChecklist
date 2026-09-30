@@ -86,6 +86,7 @@ try {
   await page.waitForFunction(()=>document.getElementById("cloud-result").textContent.includes("已启用"));assert.equal(await page.evaluate(()=>runtimeMessages.includes("cloud-authorize")),true);
   assert.ok((await page.evaluate(()=>lastPermissions.origins)).includes("http://*.chaoxing.com/*"));
   assert.ok((await page.evaluate(()=>lastPermissions.origins)).includes("https://*.chaoxing.com/*"));
+  assert.ok((await page.evaluate(()=>lastPermissions.origins)).includes("https://www.zhifz.com/*"));
   await page.evaluate(()=>{const current=chrome.runtime.getManifest;chrome.runtime.getManifest=()=>({version:"old"});window.restoreManifest=()=>{chrome.runtime.getManifest=current;};lastPermissions=null;});
   await page.locator("#cloud-authorize").click();assert.match(await page.locator("#cloud-result").textContent(),/尚未加载新增权限/);assert.equal(await page.evaluate(()=>lastPermissions),null);await page.evaluate(()=>restoreManifest());
   await page.evaluate(()=>{chrome.runtime.sendMessage=async()=>undefined;chrome.runtime.reload=()=>{window.testReloaded=true;};});
@@ -115,9 +116,38 @@ try {
   await capture.evaluate(()=>new Promise(resolve=>{const xhr=new XMLHttpRequest();xhr.open("POST","https://openapiv5.ketangpai.com//FutureV2/CourseMeans/getCourseContent");xhr.setRequestHeader("Content-Type","application/json");xhr.setRequestHeader("token","synthetic-class-token");xhr.onload=resolve;xhr.send('{"courseid":"test-course"}');}));
   await capture.waitForFunction(()=>messages.some(m=>m.kind==="campus-cloud-recipe-v1"));
   assert.equal(await capture.evaluate(()=>messages.find(m=>m.kind==="campus-cloud-recipe-v1").recipe.headers.token),"synthetic-class-token");
+  const zhifzRequests=[];
+  let zhifzExpired=false;
+  await captureContext.route("https://www.zhifz.com/yonghu_ceyan?*",route=>{
+    const request=route.request(),states=JSON.parse(new URL(request.url()).searchParams.get("状态"));
+    zhifzRequests.push({method:request.method(),states});
+    return route.fulfill({contentType:"application/json",body:JSON.stringify(zhifzExpired && states.includes(2)?{result:false,error:"请重新登录"}:{result:true,data:[{测验ID:states[0]+100,测验名称:"示例作业",科目名称:"示例课程",状态:states[0]}]})});
+  });
+  await capture.goto("https://www.zhifz.com/#/zuoye");
+  await capture.evaluate(()=>{window.messages=[];addEventListener("message",event=>messages.push(event.data));});
+  for(const name of ["cloud-routes.js","parsers.js","capture.js"])await capture.addScriptTag({content:await readFile(new URL(name,extension),"utf8")});
+  const readZhifz=method=>capture.evaluate(method=>new Promise(resolve=>{
+    const xhr=new XMLHttpRequest();xhr.open(method,"/yonghu_ceyan?"+new URLSearchParams({UID:"123",类型:"2",状态:"[0,1]"}));xhr.onload=resolve;xhr.send();
+  }),method);
+  await readZhifz("GET");
+  await capture.waitForFunction(()=>messages.some(m=>m.kind==="campus-assignments-v1"));
+  assert.deepEqual(await capture.evaluate(()=>messages.find(m=>m.kind==="campus-assignments-v1").tasks.map(task=>task.status)),["todo","done"]);
+  assert.equal(await capture.evaluate(()=>messages.some(m=>m.kind==="campus-cloud-recipe-v1")),false);
+  assert.deepEqual(zhifzRequests,[{method:"GET",states:[0,1]},{method:"GET",states:[2,3]}]);
+  await capture.evaluate(()=>window.postMessage({kind:"campus-cloud-mode",enabled:true},location.origin));
+  await readZhifz("GET");
+  await capture.waitForFunction(()=>messages.some(m=>m.kind==="campus-cloud-recipe-v1"));
+  assert.equal(await capture.evaluate(()=>messages.find(m=>m.kind==="campus-cloud-recipe-v1").recipe.method),"GET");
+  const beforePost=await capture.evaluate(()=>messages.filter(m=>m.kind==="campus-assignments-v1").length);
+  await readZhifz("POST");
+  assert.equal(await capture.evaluate(()=>messages.filter(m=>m.kind==="campus-assignments-v1").length),beforePost,"answer submissions must not be captured");
+  assert.equal(zhifzRequests.length,5,"companion list read must not recurse or replay a POST");
+  zhifzExpired=true;await readZhifz("GET");
+  await capture.waitForFunction(()=>messages.some(m=>m.kind==="campus-assignments-v1" && m.error));
+  assert.match(await capture.evaluate(()=>messages.find(m=>m.error).error),/登录/);
   await captureContext.close();
   await page.locator("#legacy-settings").evaluate(el=>el.open=false);await mkdir("data/screenshots",{recursive:true});await page.screenshot({path:"data/screenshots/extension.png",fullPage:true});
-  console.log("PASS: Chaoxing DOM metadata and submission statuses; settings UI preserves draft through tab switching, close/reopen and reload; permission denial retains draft; successful save clears draft and restores active settings. Chrome APIs simulated; user's Edge untouched.");
+  console.log("PASS: Zhifz latest/past list capture, explicit cloud consent and read-only requests; Chaoxing DOM metadata and submission statuses; settings draft persistence and permission handling. Chrome APIs simulated; user's Edge untouched.");
 } finally {
   await browser?.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));
 }

@@ -1,5 +1,5 @@
 (() => {
-  const source=location.hostname==="smartestu.cn"?"smartestu":location.hostname==="www.ketangpai.com"?"ketangpai":/(^|\.)chaoxing\.com$/.test(location.hostname)?"chaoxing":null;
+  const source=location.hostname==="www.zhifz.com"?"zhifz":location.hostname==="smartestu.cn"?"smartestu":location.hostname==="www.ketangpai.com"?"ketangpai":/(^|\.)chaoxing\.com$/.test(location.hostname)?"chaoxing":null;
   if(!source) return;
   let seen=false,running=false,navigated=false,lastDocument="",managed=false,cloudEnabled=false;
   const send=(tasks,error)=>chrome.runtime.sendMessage({type:"capture",source,tasks,...(error?{error}:{})}).catch(()=>{});

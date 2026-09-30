@@ -1,6 +1,6 @@
 {
   "name": "ruchecklist",
-  "version": "2.10.0",
+  "version": "2.11.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -10,7 +10,7 @@
     "start": "node local.mjs",
     "build:pages": "node build-pages.mjs",
     "build:extension": "python package-extension.py",
-    "test": "node --test test.mjs resources-test.mjs completion-test.mjs cloud-test.mjs academic-test.mjs trial-test.mjs",
+    "test": "node --test test.mjs resources-test.mjs completion-test.mjs cloud-test.mjs academic-test.mjs trial-test.mjs zhifz-test.mjs",
     "check": "node --check worker.mjs && node --check static/app.js",
     "test:ui": "node ui-test.mjs",
     "test:trial-ui": "node trial-ui-test.mjs",

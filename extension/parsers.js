@@ -24,6 +24,21 @@ globalThis.CampusParsers = (() => {
   }
   function parse(source,url,value,pageURL="") {
     const output=new Map(); let recognized=false;
+    if(source==="zhifz") {
+      const request=new URL(url,"https://www.zhifz.com");
+      if(request.origin!=="https://www.zhifz.com" || request.pathname!=="/yonghu_ceyan" || request.searchParams.get("类型")!=="2" || !/^\d{1,20}$/.test(request.searchParams.get("UID") || ""))return null;
+      if(![true,1].includes(value?.result) || !Array.isArray(value.data))return null;
+      for(const task of value.data) {
+        if(!task || !/^\d+$/.test(String(task["测验ID"])) || typeof task["测验名称"]!=="string" || !task["测验名称"].trim())throw new Error("智夫子作业字段发生变化");
+        // stuZuoYe.html uses this list's 0/1 = incomplete and 2/3 = completed.
+        // Do not use ceYanZuDaState (0–5), which belongs to a different endpoint.
+        const status={"0":"todo","1":"todo","2":"done","3":"done"}[String(task["状态"])];
+        if(!status)throw new Error("智夫子作业状态无法识别，请核对网页");
+        const item={external_id:`${request.searchParams.get("UID")}:${task["测验ID"]}`,content:task["测验名称"].trim(),course:String(task["科目名称"] || ""),due_at:date(task["截止时间"]),status,source_url:"https://www.zhifz.com/#/zuoye"};
+        output.set(item.external_id,item);
+      }
+      return [...output.values()];
+    }
     if(source==="smartestu" && /\/api\/homework\/student\/mark\/queryHomeworks(?:\?|$)/.test(url)) {
       walk(value,course=>{
         if(!Object.hasOwn(course,"studentCourseHomeworkDTOList")) return;

@@ -1,14 +1,14 @@
 import "./extension/parsers.js";
 import "./extension/cloud-routes.js";
 
-const sources=["smartestu","ketangpai","chaoxing"],stamp=()=>new Date().toISOString();
+const sources=["smartestu","ketangpai","chaoxing","zhifz"],stamp=()=>new Date().toISOString();
 const error=(status,message)=>Object.assign(new Error(message),{status});
 const loginExpired=()=>Object.assign(error(401,"网站登录已过期，请重新登录后同步"),{code:"auth_expired"});
 function loginURL(value,base) {
   try {
     const url=new URL(value,base),host=new URL(base).hostname;
     const trusted=url.hostname===host || ["ketangpai.com","chaoxing.com"].some(domain=>host.endsWith(`.${domain}`) && (url.hostname===domain || url.hostname.endsWith(`.${domain}`)));
-    return trusted && /^https?:$/.test(url.protocol) && /(?:^|\/)(?:login|signin|sso|cas\/login)(?:[/.?;]|$)/i.test(url.pathname+url.hash.replace(/^#/,""));
+    return trusted && /^https?:$/.test(url.protocol) && /(?:^|\/)(?:login|signin|sso|cas\/login|renzheng)(?:[/.?;]|$)/i.test(url.pathname+url.hash.replace(/^#/,""));
   }catch{return false;}
 }
 function jsonData(raw) {
@@ -36,8 +36,8 @@ async function open(env,source,value) {
   return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:"AES-GCM",iv:new Uint8Array(iv),additionalData:new TextEncoder().encode(env.TRIAL_USER?`${env.TRIAL_USER}:${source}`:source)},await key(env),Uint8Array.from(atob(data),x=>x.charCodeAt(0)))));
 }
 export function validateRecipe(source,recipe) {
-  if(!sources.includes(source) || !recipe || CampusCloudRoutes.source(recipe.url)!==source || recipe.url.length>4000) throw error(400,"只允许授权三个平台的作业列表接口");
-  if(!["GET","POST"].includes(recipe.method) || (source==="chaoxing" && recipe.method!=="GET")) throw error(400,"不允许此请求方法");
+  if(!sources.includes(source) || !recipe || CampusCloudRoutes.source(recipe.url)!==source || recipe.url.length>4000) throw error(400,"仅允许已支持平台的作业列表接口");
+  if(!["GET","POST"].includes(recipe.method) || (["chaoxing","zhifz"].includes(source) && recipe.method!=="GET")) throw error(400,"不允许此请求方法");
   const headers={};
   for(const [name,value] of Object.entries(recipe.headers || {})) {
     if(![...CampusCloudRoutes.headers,"cookie"].includes(name.toLowerCase()) || typeof value!=="string" || value.length>16000 || /[\r\n]/.test(value)) throw error(400,"授权请求头格式不正确");
@@ -49,7 +49,7 @@ export function validateRecipe(source,recipe) {
   if(body && !/^(application\/json|application\/x-www-form-urlencoded)(;|$)/i.test(headers["content-type"] || "")) throw error(400,"仅支持 JSON 或表单列表参数");
   if(/(?:["&]|^)(?:password|passwd|pwd)["=\s:]/i.test(body)) throw error(400,"禁止上传账号密码");
   const page=new URL(recipe.page_url || recipe.url);
-  const allowed=source==="smartestu"?page.hostname==="smartestu.cn":source==="ketangpai"?page.hostname==="www.ketangpai.com":/(^|\.)chaoxing\.com$/.test(page.hostname);
+  const allowed=source==="smartestu"?page.hostname==="smartestu.cn":source==="ketangpai"?page.hostname==="www.ketangpai.com":source==="zhifz"?page.hostname==="www.zhifz.com":/(^|\.)chaoxing\.com$/.test(page.hostname);
   if(!allowed || page.protocol!=="https:" || page.username || page.password || page.href.length>4000) throw error(400,"课程页面与来源不匹配");
   return {url:new URL(recipe.url).href,method:recipe.method,headers,body,page_url:page.href};
 }
@@ -59,6 +59,7 @@ function recipeId(recipe) {
   if(body) {try{body=JSON.parse(body);}catch{body=Object.fromEntries(new URLSearchParams(body));}}
   if(CampusCloudRoutes.source(url.href)==="smartestu" && body && typeof body==="object") delete body.pageNo;
   if(CampusCloudRoutes.source(url.href)==="chaoxing") url.searchParams.delete("pageNum");
+  if(CampusCloudRoutes.source(url.href)==="zhifz") url.searchParams.delete("状态");
   return JSON.stringify([url.origin,url.pathname,clean(Object.fromEntries(url.searchParams)),clean(body)]);
 }
 export async function cloudStatus(env) {
@@ -150,30 +151,41 @@ export async function runCloud(env,importBatch,{fetcher=fetch,Rewriter=globalThi
           let recipe=validateRecipe(source,stored);
           if(source==="smartestu") recipe=await smartSession(recipe,fetcher);
           if(++requestCount>5) throw error(502,"此平台列表超过云端单次 5 页上限，请分课程授权");
-          const raw=await fetchList(recipe,fetcher);let parsed;
-          if(source==="chaoxing") {
-            const first=await learningHTML(raw,recipe.url,Rewriter);parsed=first.tasks;
-            for(let page=1;page<=first.pages;page++) {
-              const url=new URL(recipe.url);if(page===Number(url.searchParams.get("pageNum") || 1))continue;
-              if(++requestCount>5) throw error(502,"学习通列表超过云端单次 5 页上限，请分课程授权");
-              url.searchParams.set("pageNum",page);const more=await learningHTML(await fetchList({...recipe,url:url.href},fetcher),url.href,Rewriter);parsed.push(...more.tasks);
+          let parsed;
+          if(source==="zhifz") {
+            const urls=CampusCloudRoutes.zhifzLists(recipe.url);parsed=[];
+            for(const [index,url] of urls.entries()) {
+              if(index && ++requestCount>5)throw error(502,"智夫子列表超过单次同步上限");
+              const page=CampusParsers.parse(source,url,jsonData(await fetchList({...recipe,url},fetcher)),recipe.page_url);
+              if(page===null)throw error(502,"智夫子未返回作业列表，请确认登录状态后重新授权");
+              parsed.push(...page);
             }
           } else {
-            const data=jsonData(raw);
-            parsed=CampusParsers.parse(source,recipe.url,data,recipe.page_url);
-            if(parsed===null) throw error(502,"未识别到作业列表，请重新授权并确认课程入口");
-            if(source==="smartestu" && Number(data.data?.pageTotal)>1) {
-              const total=Number(data.data.pageTotal);
-              if(!Number.isSafeInteger(total) || total>5) throw error(502,"SmartEstu 作业超过云端单次 5 页上限，请分课程授权");
-              let parameters;try{parameters=JSON.parse(recipe.body);}catch{}
-              if(recipe.method!=="POST" || !parameters || typeof parameters!=="object") throw error(502,"SmartEstu 分页参数缺失，请重新授权");
-              for(let page=1;page<=total;page++) {
-                if(page===Number(data.data.pageNo || parameters.pageNo || 1)) continue;
-                if(++requestCount>5) throw error(502,"SmartEstu 作业超过云端单次 5 页上限，请分课程授权");
-                const more=jsonData(await fetchList({...recipe,body:JSON.stringify({...parameters,pageNo:page})},fetcher));
-                const tasks=CampusParsers.parse(source,recipe.url,more,recipe.page_url);
-                if(tasks===null) throw error(502,`SmartEstu 第 ${page} 页未返回作业列表`);
-                parsed.push(...tasks);
+            const raw=await fetchList(recipe,fetcher);
+            if(source==="chaoxing") {
+              const first=await learningHTML(raw,recipe.url,Rewriter);parsed=first.tasks;
+              for(let page=1;page<=first.pages;page++) {
+                const url=new URL(recipe.url);if(page===Number(url.searchParams.get("pageNum") || 1))continue;
+                if(++requestCount>5) throw error(502,"学习通列表超过云端单次 5 页上限，请分课程授权");
+                url.searchParams.set("pageNum",page);const more=await learningHTML(await fetchList({...recipe,url:url.href},fetcher),url.href,Rewriter);parsed.push(...more.tasks);
+              }
+            } else {
+              const data=jsonData(raw);
+              parsed=CampusParsers.parse(source,recipe.url,data,recipe.page_url);
+              if(parsed===null) throw error(502,"未识别到作业列表，请重新授权并确认课程入口");
+              if(source==="smartestu" && Number(data.data?.pageTotal)>1) {
+                const total=Number(data.data.pageTotal);
+                if(!Number.isSafeInteger(total) || total>5) throw error(502,"SmartEstu 作业超过云端单次 5 页上限，请分课程授权");
+                let parameters;try{parameters=JSON.parse(recipe.body);}catch{}
+                if(recipe.method!=="POST" || !parameters || typeof parameters!=="object") throw error(502,"SmartEstu 分页参数缺失，请重新授权");
+                for(let page=1;page<=total;page++) {
+                  if(page===Number(data.data.pageNo || parameters.pageNo || 1)) continue;
+                  if(++requestCount>5) throw error(502,"SmartEstu 作业超过云端单次 5 页上限，请分课程授权");
+                  const more=jsonData(await fetchList({...recipe,body:JSON.stringify({...parameters,pageNo:page})},fetcher));
+                  const tasks=CampusParsers.parse(source,recipe.url,more,recipe.page_url);
+                  if(tasks===null) throw error(502,`SmartEstu 第 ${page} 页未返回作业列表`);
+                  parsed.push(...tasks);
+                }
               }
             }
           }

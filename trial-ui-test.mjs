@@ -39,9 +39,9 @@ try {
   await addWebsite("https://smartestu.cn/assignment");await addWebsite("https://course.example/homework");
   assert.equal(await page.locator("#website-list .website-row").count(),2);assert.match(await page.locator("#unsupported-links").textContent(),/尚未适配/);
   await page.evaluate(()=>{
-    window.fixtureConnected=false;window.fixtureCommands=[];window.fixtureMessages=[];
+    window.fixtureConnected=false;window.fixtureCommands=[];window.fixtureMessages=[];window.fixtureVersion="1.6.0";
     addEventListener("message",e=>{if(e.data?.kind!=="campus-board-command")return;fixtureCommands.push(e.data.command);fixtureMessages.push(e.data);if(e.data.command==="pair")fixtureConnected=true;
-      window.postMessage({kind:"campus-board-reply",id:e.data.id,result:["status","pair"].includes(e.data.command)?{version:"1.6.0",connected:fixtureConnected,enabled:true,sourceResults:{}}:{ok:true}},location.origin);
+      window.postMessage({kind:"campus-board-reply",id:e.data.id,result:["status","pair"].includes(e.data.command)?{version:fixtureVersion,connected:fixtureConnected,enabled:true,sourceResults:{}}:{ok:true}},location.origin);
     });
   });
   await page.locator("#collector-recheck").click();await page.locator("#collector-connect").click();await page.locator("#collector-state").filter({hasText:"已连接"}).waitFor();
@@ -51,6 +51,13 @@ try {
   await page.waitForFunction(()=>fixtureMessages.some(message=>message.command==="scan" && message.source==="smartestu"));
   assert.equal(await page.locator("#sources-list .source-sync").count(),3);
   assert.equal(await page.locator("#sync-settings").count(),0);assert.equal(await page.locator("#cloud-settings").isVisible(),true);await page.locator("#cloud-authorize").click();await page.waitForFunction(()=>fixtureCommands.includes("options"));
+  await addWebsite("https://www.zhifz.com/#/zuoye");
+  await page.locator("#source-links-result").filter({hasText:"1.7.0"}).waitFor();
+  assert.equal(await page.evaluate(()=>fixtureMessages.some(message=>message.command==="scan" && message.source==="zhifz")),false);
+  await page.evaluate(()=>fixtureVersion="1.7.0");await page.locator("#collector-recheck").click();
+  await page.getByRole("button",{name:"同步：智夫子",exact:true}).click();
+  await page.waitForFunction(()=>fixtureMessages.some(message=>message.command==="scan" && message.source==="zhifz"));
+  assert.equal(await page.locator("#sources-list .source-sync").count(),4);
   await mkdir("data/screenshots",{recursive:true});await page.screenshot({path:"data/screenshots/trial-guide-desktop.png"});
   for(const width of [320,390,768]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);}
   await page.setViewportSize({width:390,height:844});await page.screenshot({path:"data/screenshots/trial-guide-mobile.png"});

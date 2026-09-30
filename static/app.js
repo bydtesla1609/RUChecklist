@@ -589,7 +589,7 @@ function collectorCommand(command,extra={},timeout=18000) {
 function updateSyncControls() {
   const connected=!!collectorState?.connected;
   $("collector-controls").hidden=!collectorState || connected;
-  $("install-state").textContent=collectorState?`已安装 v${collectorState.version} · ${(collectorState.version || "0").localeCompare("1.6.1",undefined,{numeric:true})<0?"可更新至 v1.6.1":"已是最新版本"}`:"只需安装一次";
+  $("install-state").textContent=collectorState?`已安装 v${collectorState.version} · ${(collectorState.version || "0").localeCompare("1.7.0",undefined,{numeric:true})<0?"可更新至 v1.7.0":"已是最新版本"}`:"只需安装一次";
   $("collector-options").disabled=!collectorState;
   $("browser-settings").hidden=!connected;
   $("collector-scan").disabled=syncing || !(cloudState?.enabled || (connected && collectorState.enabled));
@@ -636,7 +636,7 @@ async function saveWebsiteLinks(urls,submitted=null) {
     const added=submitted?data.links.find(link=>link.url===new URL(submitted).href):null;
     $("source-links-result").textContent=added&&!added.source?"链接已保存，此网站尚未适配，请手动添加任务。":"网站配置已保存。";
     if(added?.source && collectorState?.connected && collectorState.enabled) {
-      try {requireSelectiveSync();await collectorCommand(added.source==="ruc_courses"?"academic-scan":"scan",{source:added.source});$("source-links-result").textContent="已配置，正在读取网站内容。";}
+      try {requireSelectiveSync(added.source);await collectorCommand(added.source==="ruc_courses"?"academic-scan":"scan",{source:added.source});$("source-links-result").textContent="已配置，正在读取网站内容。";}
       catch(error){$("source-links-result").textContent=`已保存，可点击一键同步重试：${error.message}`;}
     }
   }catch(error){$("source-links-result").textContent=error.message;}
@@ -650,7 +650,7 @@ $("source-links-form").onsubmit=event=>{
 };
 $("collector-recheck").onclick=async()=>{
   await checkCollector();
-  if(collectorState)$("guide-install").open=collectorState.version!=="1.6.1";
+  if(collectorState)$("guide-install").open=collectorState.version!=="1.7.0";
   else {sessionStorage.setItem("resume-setup","1");location.reload();}
 };
 $("copy-extension-page").onclick=async()=>{const url=/Edg\//.test(navigator.userAgent)?"edge://extensions":"chrome://extensions";try{await navigator.clipboard.writeText(url);notice("已复制，请粘贴到浏览器地址栏打开");}catch{notice(`请复制 ${url} 到浏览器地址栏`);}};
@@ -663,10 +663,11 @@ $("collector-connect").onclick=async()=>{
     $("guide-install").open=false;notice("已连接，请在第 3 步保存需要同步的网站链接。");
   }catch(error){$("source-error").textContent=error.message;}finally{$("collector-connect").disabled=false;}
 };
-function requireSelectiveSync() {
-  if((collectorState?.version || "0").localeCompare("1.6.0",undefined,{numeric:true})<0) {
+function requireSelectiveSync(source) {
+  const zhifz=source==="zhifz" || !source && sourceLinksState?.some(link=>link.source==="zhifz"),version=zhifz?"1.7.0":"1.6.0";
+  if((collectorState?.version || "0").localeCompare(version,undefined,{numeric:true})<0) {
     $("guide-install").open=true;
-    throw new Error("单独同步需要扩展 v1.6.0，请按第 1 步替换文件、重新加载，再刷新看板。");
+    throw new Error(`${zhifz?"智夫子":"单独"}同步需要扩展 v${version}，请按第 1 步替换文件、重新加载，再刷新看板。`);
   }
 }
 async function syncSources(source) {
@@ -674,7 +675,7 @@ async function syncSources(source) {
   syncing=true;updateSyncControls();renderSources();$("source-error").textContent="";
   try {
     const jobs=[],cloudEligible=!source || !source.startsWith("ruc_");
-    if(collectorState?.connected && collectorState.enabled && source)requireSelectiveSync();
+    if(collectorState?.connected && collectorState.enabled && (source || sourceLinksState?.some(link=>link.source==="zhifz")))requireSelectiveSync(source);
     if(cloudState?.enabled && cloudEligible)jobs.push(api("/api/cloud/run","POST",source?{source}:{},60000).then(result=>{
       if(result.running)throw new Error("云端正在同步，请稍后再试");
       const errors=Object.values(result).filter(item=>item?.error).map(item=>item.error);if(errors.length)throw new Error(errors.join("；"));
@@ -696,7 +697,10 @@ $("collector-enabled").onchange=async()=>{
   finally{$("collector-enabled").disabled=false;}
 };
 $("collector-options").onclick=()=>collectorCommand("options").catch(error=>{$("source-error").textContent=error.message;});
-$("cloud-authorize").onclick=()=>{if(trialMode && (collectorState?.version || "0").localeCompare("1.5.1",undefined,{numeric:true})<0){$("guide-install").open=true;$("source-error").textContent="请先按第 1 步更新扩展至 v1.6.0，再授权云端采集。";return;}$("collector-options").click();};
+$("cloud-authorize").onclick=()=>{
+  const version=sourceLinksState?.some(link=>link.source==="zhifz")?"1.7.0":"1.5.1";
+  if((collectorState?.version || "0").localeCompare(version,undefined,{numeric:true})<0){$("guide-install").open=true;$("source-error").textContent="请先按第 1 步更新扩展至 v1.7.0，再授权云端采集。";return;}$("collector-options").click();
+};
 async function checkCloud() {
   const session=syncSession,sequence=++cloudCheckSequence;lastCloudCheck=Date.now();
   try {
@@ -759,6 +763,7 @@ function renderSources() {
     row.append(header);
     const total=cloud?.last_success?cloud.count:source.task_count;
     row.append(element("p",expired?"在已连接扩展的电脑浏览器重新登录并打开同步页面，再点此网站的“同步”。仍提示过期时，在第 4 步更新云端授权。":error || (seen?`${formatTime(seen)} · ${total} 项${academic?"日程":"作业"}${incomplete?" · 部分完成状态未识别":""}`:cloud?.authorized?"授权已保存，等待同步":"请连接扩展并登录此网站")));
+    if(!academic && cloudState?.enabled && !cloud?.authorized)row.append(element("p","此网站尚未授权云端采集，可在第 4 步更新授权。","hint"));
     return row;
   }));
 }
@@ -829,7 +834,7 @@ $("add-menu").replaceChildren(...CATEGORIES.map(category => {
 document.addEventListener("click", event => { if (!event.target.closest(".add-control") && !event.target.closest(".empty")) closeAddMenu(); });
 document.addEventListener("keydown", event => { if (event.key === "Escape" && !$("add-menu").hidden) { closeAddMenu(); $("add-task").focus(); } });
 $("add-task").onclick = startAdd;
-$("sources-button").onclick = () => { $("guide-install").open=!collectorState || collectorState.version!=="1.6.1";renderSources(); $("sources-dialog").showModal(); $("source-error").textContent=""; loadSourceLinks();checkCollector().then(()=>{if(!$("demo-dialog").open)$("guide-install").open=!collectorState || collectorState.version!=="1.6.1";}); checkCloud(); };
+$("sources-button").onclick = () => { $("guide-install").open=!collectorState || collectorState.version!=="1.7.0";renderSources(); $("sources-dialog").showModal(); $("source-error").textContent=""; loadSourceLinks();checkCollector().then(()=>{if(!$("demo-dialog").open)$("guide-install").open=!collectorState || collectorState.version!=="1.7.0";}); checkCloud(); };
 document.querySelectorAll(".close-dialog").forEach(button => button.onclick = () => button.closest("dialog").close());
 $("task-form").onsubmit = async event => {
   event.preventDefault(); $("save-task").disabled = true; $("task-error").textContent = "";

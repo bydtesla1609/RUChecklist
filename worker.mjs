@@ -4,6 +4,7 @@ export const SOURCES = {
   smartestu: {name: "SmartEstu", url: "https://smartestu.cn/assignment"},
   ketangpai: {name: "课堂派", url: "https://www.ketangpai.com/"},
   chaoxing: {name: "学习通", url: "https://mooc2-ans.chaoxing.com/"},
+  zhifz: {name: "智夫子", url: "https://www.zhifz.com/#/zuoye"},
   ruc_courses: {name:"人大课表",url:"https://jw.ruc.edu.cn/Njw2017/index.html#/student/student-course-list/",kind:"academic"},
   ruc_exams: {name:"人大考试",url:"https://jw.ruc.edu.cn/Njw2017/index.html#/student/test-arrange-search/",kind:"academic"},
 };
@@ -21,14 +22,14 @@ export function sourceLinks(values) {
     const url=new URL(webURL(value,"作业页面链接"));
     if(url.protocol!=="https:")fail(400,"请填写 HTTPS 作业页面链接");
     const host=url.hostname;
-    const source=host==="smartestu.cn"?"smartestu":host==="www.ketangpai.com"?"ketangpai":/(^|\.)chaoxing\.com$/.test(host)?"chaoxing":host==="jw.ruc.edu.cn"?"ruc_courses":null;
+    const source=host==="smartestu.cn"?"smartestu":host==="www.ketangpai.com"?"ketangpai":host==="www.zhifz.com"?"zhifz":/(^|\.)chaoxing\.com$/.test(host)?"chaoxing":host==="jw.ruc.edu.cn"?"ruc_courses":null;
     return {url:url.href,source,name:source?SOURCES[source].name:host};
   }).filter(link=>{if(unique.has(link.url))return false;unique.add(link.url);return true;});
 }
 async function savedLinks(env) {
   const saved=await env.DB.prepare("SELECT value FROM settings WHERE key='source_links'").first();
   if(saved)return JSON.parse(saved.value);
-  return env.TRIAL_MODE?[]:sourceLinks(Object.values(configuredSources(env)).filter(source=>!source.kind || source.name==="人大课表").map(source=>source.url));
+  return env.TRIAL_MODE?[]:sourceLinks(Object.entries(configuredSources(env)).filter(([id,source])=>id!=="zhifz" && (!source.kind || source.name==="人大课表")).map(([,source])=>source.url));
 }
 const CATEGORIES = ["作业", "课程", "考试", "活动", "会议"];
 const STATUSES = ["todo", "doing", "done"];
@@ -83,7 +84,7 @@ function webURL(value, label="链接") {
 function sourceURL(source,value,fallback) {
   if(!value) return fallback;
   const url=new URL(webURL(value,"作业网页"));
-  const domains={smartestu:["smartestu.cn"],ketangpai:["ketangpai.com"],chaoxing:["chaoxing.com"],ruc_courses:["jw.ruc.edu.cn"],ruc_exams:["jw.ruc.edu.cn"]}[source];
+  const domains={smartestu:["smartestu.cn"],ketangpai:["ketangpai.com"],chaoxing:["chaoxing.com"],zhifz:["www.zhifz.com"],ruc_courses:["jw.ruc.edu.cn"],ruc_exams:["jw.ruc.edu.cn"]}[source];
   if(url.protocol!=="https:" || !domains.some(host=>url.hostname===host || url.hostname.endsWith(`.${host}`))) fail(400,"作业网页与平台不匹配");
   return url.href;
 }
@@ -190,7 +191,7 @@ export async function applyImport(payload,db,sources) {
       WHERE tasks.deleted=0 AND ((instr(tasks.overrides,'"title"')=0 AND tasks.title IS NOT excluded.title) OR (instr(tasks.overrides,'"content"')=0 AND excluded.content<>'' AND tasks.content IS NOT excluded.content)
       OR (tasks.category='作业' AND instr(tasks.overrides,'"due_at"')=0 AND excluded.due_at IS NOT NULL AND tasks.due_at IS NOT excluded.due_at) OR tasks.course IS NOT excluded.course OR tasks.source_url IS NOT excluded.source_url OR (${remoteChanged}))`)
       .bind(JSON.stringify(rows))];
-  statements.push(db.prepare("UPDATE sources SET last_seen=?,task_count=?,error=? WHERE id=?").bind(stamp,count,error || null,source));
+  statements.push(db.prepare("INSERT INTO sources(last_seen,task_count,error,id) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET last_seen=excluded.last_seen,task_count=excluded.task_count,error=excluded.error").bind(stamp,count,error || null,source));
   const result=await db.batch(statements);
   return {changed:result.slice(0,-1).reduce((sum,r)=>sum+r.meta.changes,0)};
 }
@@ -320,7 +321,7 @@ async function route(request, env) {
   if(path==="/api/source-links" && method==="PUT") {
     const links=sourceLinks((await body(request)).urls);
     await db.prepare("INSERT INTO settings(key,value) VALUES ('source_links',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(JSON.stringify(links)).run();
-    if(env.TRIAL_MODE)for(const source of ["smartestu","ketangpai","chaoxing"])if(!links.some(link=>link.source===source))await db.prepare("DELETE FROM settings WHERE key IN (?,?)").bind(`cloud_credential_${source}`,`cloud_state_${source}`).run();
+    if(env.TRIAL_MODE)for(const source of ["smartestu","ketangpai","chaoxing","zhifz"])if(!links.some(link=>link.source===source))await db.prepare("DELETE FROM settings WHERE key IN (?,?)").bind(`cloud_credential_${source}`,`cloud_state_${source}`).run();
     return json({links});
   }
   if(path==="/api/cloud" && method==="GET") return json(await cloudStatus(env));
@@ -352,7 +353,7 @@ async function route(request, env) {
     const configuration=configuredSources(env);
     const byId=new Map(files.results.map(file=>[file.id,file]));
     const tables=await db.prepare("SELECT value FROM settings WHERE key LIKE 'timetable:%'").all();
-    return json({tasks:tasks.results.map(task=>expose(task,byId)),timetables:tables.results.map(row=>JSON.parse(row.value)),sources:sources.results.map(source=>({...source,...configuration[source.id]})),storage:{used:storage.results[0].used,limit:env.TRIAL_MODE?5*1024*1024:STORAGE_LIMIT,file_limit:env.TRIAL_MODE?1024*1024:FILE_LIMIT},server_time:now()});
+    return json({tasks:tasks.results.map(task=>expose(task,byId)),timetables:tables.results.map(row=>JSON.parse(row.value)),sources:Object.entries(configuration).map(([id,config])=>({id,last_seen:null,task_count:0,imported_count:0,status_count:0,...sources.results.find(source=>source.id===id),...config})),storage:{used:storage.results[0].used,limit:env.TRIAL_MODE?5*1024*1024:STORAGE_LIMIT,file_limit:env.TRIAL_MODE?1024*1024:FILE_LIMIT},server_time:now()});
   }
   if(path==="/api/archive" && method==="GET") {
     const category=url.searchParams.get("category") || "全部", offset=Number(url.searchParams.get("offset") || 0);

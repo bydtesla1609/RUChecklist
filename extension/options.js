@@ -67,7 +67,7 @@ $("scan").onclick=async()=>{
 };
 chrome.storage.local.get("cloudLastResult").then(data=>{if(data.cloudLastResult)$("cloud-result").textContent=data.cloudLastResult;});
 function showCloudSources(results={}) {
-  $("cloud-sources").replaceChildren(...Object.entries({smartestu:"SmartEstu",ketangpai:"课堂派",chaoxing:"学习通"}).map(([source,label])=>{
+  $("cloud-sources").replaceChildren(...Object.entries({smartestu:"SmartEstu",ketangpai:"课堂派",chaoxing:"学习通",zhifz:"智夫子"}).map(([source,label])=>{
     const row=document.createElement("p");row.textContent=`${label}：${results[source] || "尚未保存授权"}`;return row;
   }));
 }
@@ -77,7 +77,7 @@ $("cloud-authorize").onclick=async()=>{
   if(!$("cloud-consent").checked){$("cloud-result").textContent="请先阅读并勾选云端登录授权说明。";return;}
   try {
     if(!chrome.runtime.getManifest().optional_host_permissions?.includes("http://*.chaoxing.com/*")) throw new Error("扩展后台尚未加载新增权限。请点击下方“重新加载此扩展”，确认版本 v1.6.0 或更新版本 后再授权。");
-    const allowed=await chrome.permissions.request({permissions:["cookies"],origins:["https://openapiv5.ketangpai.com/*","http://*.chaoxing.com/*","https://*.chaoxing.com/*","https://ketangpai.com/*"]});
+    const allowed=await chrome.permissions.request({permissions:["cookies"],origins:["https://openapiv5.ketangpai.com/*","http://*.chaoxing.com/*","https://*.chaoxing.com/*","https://ketangpai.com/*","https://www.zhifz.com/*"]});
     if(!allowed)throw new Error("未获得登录授权读取权限，云端采集未启用。");
     $("cloud-authorize").disabled=true;
     const result=await chrome.runtime.sendMessage({type:"cloud-authorize"});
