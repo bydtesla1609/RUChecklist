@@ -16,7 +16,7 @@ test("Zhifz imports list metadata and updates completion across latest/past list
   env.CLOUD_ENCRYPTION_KEY="78".repeat(32);
   try {
     assert.equal(sourceLinks(["https://www.zhifz.com/#/zuoye"])[0].source,"zhifz");
-    assert.equal(sourceLinks(["https://www.zhifz.com.evil.example/#/zuoye"])[0].source,null);
+    assert.equal(sourceLinks(["https://www.zhifz.com.evil.example/#/zuoye"])[0].source,"web:https://www.zhifz.com.evil.example");
     const recipe={url:list([0,1]),method:"GET",page_url:SOURCES.zhifz.url,headers:{cookie:"session=synthetic-only"}};
     for(const value of ["https://www.zhifz.com/yonghu_dati",list([0,1]).replace("%E7%B1%BB%E5%9E%8B=2","%E7%B1%BB%E5%9E%8B=1"),list([0,1])+"&password=not-permitted",list([9])])assert.equal(CampusCloudRoutes.source(value),null);
     assert.throws(()=>validateRecipe("zhifz",{...recipe,method:"POST"}),/方法/);

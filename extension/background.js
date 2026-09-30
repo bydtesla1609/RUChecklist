@@ -3,7 +3,7 @@ SOURCES.ruc_courses="https://jw.ruc.edu.cn/Njw2017/index.html#/student/student-c
 SOURCES.ruc_exams="https://jw.ruc.edu.cn/Njw2017/index.html#/student/test-arrange-search/";
 const BOARD_ORIGIN="https://campus-task-board.pages.dev";
 const BOARD_ORIGINS=[BOARD_ORIGIN,"https://ruchecklist-trial.pages.dev"];
-if(typeof importScripts==="function") importScripts("cloud-routes.js","academic-parser.js");
+if(typeof importScripts==="function") importScripts("cloud-routes.js","academic-parser.js","generic-parser.js","generic-background.js");
 function sourceFor(url) {
   const host=new URL(url).hostname;
   if(host==="jw.ruc.edu.cn") {
@@ -55,12 +55,12 @@ async function reportError(error,source) {
   await chrome.storage.local.set({lastResult:message,lastTime:time,sourceResults});
   await chrome.action.setBadgeText({text:"!"});
 }
-async function upload(message,sender) {
-  const source=sourceFor(sender.url);
+async function upload(message,sender,generic=false) {
+  const source=generic?`web:${new URL(sender.url).origin}`:sourceFor(sender.url);
   if(!source || source!==message.source) throw new Error("来源不匹配");
   const {boardURL,token,enabled,configuredSources,importCache={},sourceResults={}}=await chrome.storage.local.get(["boardURL","token","enabled","configuredSources","importCache","sourceResults"]);
   if(!enabled || !boardURL || !token) return {skipped:true};
-  if(Array.isArray(configuredSources) && !configuredSources.includes(source))return {skipped:true};
+  if(!generic && Array.isArray(configuredSources) && !configuredSources.includes(source))return {skipped:true};
   if(source==="ruc_courses" && message.academic && boardURL!=="https://ruchecklist-trial.pages.dev") {
     const response=await fetch(`${boardURL}/api/import`,{method:"POST",credentials:"omit",headers:{"Content-Type":"application/json",Authorization:`Bearer ${token}`},body:JSON.stringify({source,academic:message.academic}),signal:AbortSignal.timeout(45000)});
     const data=await response.json();if(!response.ok || data.error)throw new Error(data.error || "课表导入失败");
@@ -93,13 +93,14 @@ async function upload(message,sender) {
   return {ok:true,changed};
 }
 async function performScan(force=false,academicOnly=false,onlySource) {
-  if(onlySource!==undefined && !Object.hasOwn(SOURCES,onlySource))throw new Error("未知同步来源");
+  if(onlySource!==undefined && !Object.hasOwn(SOURCES,onlySource) && !onlySource.startsWith("web:"))throw new Error("未知同步来源");
   const {enabled,boardURL,token,managedTabs={},sourceURLs={}}=await chrome.storage.local.get(["enabled","boardURL","token","managedTabs","sourceURLs"]);
   if(!boardURL || !token) throw new Error("请先连接看板");
   if(!enabled && !force) throw new Error("自动同步已暂停，请先开启同步");
   const response=await fetch(`${boardURL}/api/collector-config`,{headers:{Authorization:`Bearer ${token}`},credentials:"omit",signal:AbortSignal.timeout(15000)});
   if(!response.ok) throw new Error("无法读取作业来源，请重新连接看板");
   const config=await response.json(),configuration=config.sources;
+  if(typeof registerGeneric==="function")await registerGeneric((config.links || []).filter(link=>link.generic));
   const entries=config.links===undefined?Object.entries(SOURCES).filter(([source])=>!["zhifz","yoj","weilai","tuoj"].includes(source) || sourceURLs[source] || configuration?.[source]).map(([source,url])=>({source,url:sourceURLs[source] || configuration?.[source]?.url || url})):
     config.links.filter(link=>link.source).flatMap(link=>link.source==="ruc_courses"?[{source:"ruc_courses",url:SOURCES.ruc_courses},{source:"ruc_exams",url:SOURCES.ruc_exams}]:[link]);
   const selected=[...new Map(entries.filter(link=>(!academicOnly || link.source.startsWith("ruc_")) && (!onlySource || link.source===onlySource)).map(link=>[link.url,link])).values()];
@@ -107,6 +108,15 @@ async function performScan(force=false,academicOnly=false,onlySource) {
   await chrome.storage.local.set({configuredSources:[...new Set(entries.map(link=>link.source))]});
   for(const [index,{source,url:address}] of selected.entries()) {
     const candidate=new URL(address);
+    if(source.startsWith("web:")){
+      if(source!==`web:${candidate.origin}` || !["https:","http:"].includes(candidate.protocol) || candidate.username || candidate.password)throw new Error("通用网站地址不正确");
+      if(!await chrome.permissions.contains({origins:[`${candidate.origin}/*`]})){await reportError("请在第 3 步点击“识别设置”，允许读取此网站并确认预览。",source);continue;}
+      const key=`${source}:${address}`;let tab;
+      try{tab=await chrome.tabs.get(managedTabs[key]);}catch{}
+      if(tab && !tab.active && CampusGeneric.pageKey(tab.url)===CampusGeneric.pageKey(address))await chrome.tabs.reload(tab.id);
+      else {const created=await chrome.tabs.create({url:address,active:false});managedTabs[key]=created.id;}
+      continue;
+    }
     if((candidate.protocol!=="https:" && !(source==="yoj" && candidate.protocol==="http:")) || candidate.username || candidate.password || sourceFor(candidate.href)!==source) throw new Error(`${source} 作业页地址不正确`);
     const url=candidate.href;
     const key=config.links===undefined?source:`${source}:${url}`;
@@ -143,12 +153,14 @@ async function boardControl(message,sender) {
     const previous=await chrome.storage.local.get(["boardURL","account"]);
     const changed=previous.boardURL!==origin || (previous.account || "personal")!==(configuration.account || "personal");
     const configured=(configuration.links || Object.keys(SOURCES).map(source=>({source}))).flatMap(link=>link.source==="ruc_courses"?["ruc_courses","ruc_exams"]:link.source?[link.source]:[]);
-    await chrome.storage.local.set({boardURL:origin,account:configuration.account || "personal",token:message.token,enabled:true,configuredSources:configured,importCache:{},sourceResults:{},managedTabs:{},sourceURLs:{},...(changed?{cloudEnabled:false,cloudZhifzEnabled:false,cloudRucListsEnabled:false,cloudRecipeCache:{},cloudSourceResults:{}}:{})});await configure();
+    await chrome.storage.local.set({boardURL:origin,account:configuration.account || "personal",token:message.token,enabled:true,configuredSources:configured,importCache:{},sourceResults:{},managedTabs:{},sourceURLs:{},...(changed?{cloudEnabled:false,cloudZhifzEnabled:false,cloudRucListsEnabled:false,cloudRecipeCache:{},cloudSourceResults:{},genericPending:null,genericReview:null}:{})});await configure();
+    if(typeof registerGeneric==="function")await registerGeneric((configuration.links || []).filter(link=>link.generic));
   }
   const data=await chrome.storage.local.get(["boardURL","token","enabled","sourceResults","lastResult","account"]);
   const connected=data.boardURL===origin && !!data.token && (data.account || "personal")===(message.account || "personal");
   if(message.command==="status" || message.command==="pair") return {version:chrome.runtime.getManifest().version,connected,enabled:!!data.enabled,sourceResults:connected?data.sourceResults || {}:{},lastResult:connected?data.lastResult || "":""};
   if(!connected) throw new Error("请先在此看板连接扩展");
+  if(message.command==="generic-setup")return genericSetup(message.url);
   if(message.command==="configure") {
     if(typeof message.enabled!=="boolean") throw new Error("同步设置不正确");
     await chrome.storage.local.set({enabled:message.enabled});return configure();

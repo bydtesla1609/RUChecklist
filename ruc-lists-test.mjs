@@ -17,7 +17,7 @@ test("new site URLs are classified narrowly and unsafe/write routes are excluded
   assert.deepEqual(sourceLinks([SOURCES.yoj.url,SOURCES.weilai.url,SOURCES.tuoj.url]).map(link=>link.source),["yoj","weilai","tuoj"]);
   assert.throws(()=>sourceLinks(["http://k.ruc.edu.cn/UserClient/homePage.html"]),/HTTPS/);
   assert.throws(()=>sourceLinks(["http://yoj.ruc.edu.cn.evil.example/index.php"]),/HTTPS/);
-  assert.equal(sourceLinks(["https://ruc.thusaac.com.evil.example/"])[0].source,null);
+  assert.equal(sourceLinks(["https://ruc.thusaac.com.evil.example/"])[0].source,"web:https://ruc.thusaac.com.evil.example");
   assert.equal(validateRecipe("weilai",kRecipe).url,kRoot);
   assert.equal(validateRecipe("tuoj",tuRecipe).url,tuRecipe.url);
   for(const url of [kRoot.replace("getMyLearnCourse","getTeachCourseWeb"),kList.replace("studentGlobalSearch","studentViewNotify"),"https://ruc.thusaac.com/api/course/1/rank","https://ruc.thusaac.com/api/course/1/contest/2/submission/list","https://ruc.thusaac.com/api/course/list?token=not-allowed",SOURCES.yoj.url])assert.equal(CampusCloudRoutes.source(url),null);

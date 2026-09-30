@@ -9,9 +9,10 @@ const manifest=JSON.parse(await readFile(new URL("manifest.json",extension),"utf
 assert.equal(manifest.action.default_popup,undefined);
 const files={"/options.html":"text/html","/options.js":"text/javascript","/options.css":"text/css"};
 const server=createServer(async(req,res)=>{
-  if(!files[req.url]) {res.writeHead(404);res.end();return;}
-  res.writeHead(200,{"Content-Type":files[req.url]});
-  res.end(await readFile(new URL(req.url.slice(1),extension)));
+  const path=new URL(req.url,"http://localhost").pathname;
+  if(!files[path]) {res.writeHead(404);res.end();return;}
+  res.writeHead(200,{"Content-Type":files[path]});
+  res.end(await readFile(new URL(path.slice(1),extension)));
 });
 server.listen(0,"127.0.0.1");await once(server,"listening");
 const optionsURL=`http://127.0.0.1:${server.address().port}/options.html`;
@@ -25,7 +26,7 @@ try {
     globalThis.chrome={storage:{local:{get:async keys=>{
       const data=stored();return typeof keys==="string"?{[keys]:data[keys]}:data;
     },set:async value=>localStorage.setItem("test-saved-settings",JSON.stringify({...stored(),...value})),remove:async key=>{const data=stored();delete data[key];localStorage.setItem("test-saved-settings",JSON.stringify(data));}}},
-    runtime:{reload:()=>{globalThis.reloadCalled=true;},sendMessage:async message=>{runtimeMessages.push(message.type);return {ok:true};},getManifest:()=>({version:"test",optional_host_permissions:["http://*.chaoxing.com/*"]})},extension:{getViews:()=>[]},permissions:{request:async value=>{globalThis.lastPermissions=value;return globalThis.allowPermission===true;}}};
+    runtime:{reload:()=>{globalThis.reloadCalled=true;},sendMessage:async message=>{runtimeMessages.push(message.type);return message.type==="generic-permission"?{origin:"https://class.example",url:"https://class.example/list"}:{ok:true};},getManifest:()=>({version:"test",optional_host_permissions:["http://*.chaoxing.com/*"]})},extension:{getViews:()=>[]},permissions:{request:async value=>{globalThis.lastPermissions=value;return globalThis.allowPermission===true;}}};
   });
   async function openSettings() {
     const page=await context.newPage();await page.goto(optionsURL);
@@ -198,6 +199,12 @@ try {
   });
   assert.equal(yoj.tasks.length,2);assert.equal(yoj.tasks[0].content,"课程作业");assert.equal(yoj.tasks[0].status,undefined);assert.equal(yoj.tasks[0].due_at,"2026-10-02T14:00:00.000Z");assert.equal(yoj.tasks[1].status,"done");assert.equal(yoj.tasks[1].due_at,null);
   await captureContext.close();
+  const permissionPage=await context.newPage();await permissionPage.goto(optionsURL+"?generic=1");
+  await permissionPage.locator("#generic-site").filter({hasText:"https://class.example"}).waitFor();
+  await permissionPage.locator("#generic-allow").click();await permissionPage.locator("#generic-result").filter({hasText:"未授权"}).waitFor();
+  assert.equal(await permissionPage.evaluate(()=>runtimeMessages.includes("generic-open")),false);
+  await permissionPage.evaluate(()=>allowPermission=true);await permissionPage.locator("#generic-allow").click();await permissionPage.locator("#generic-result").filter({hasText:"已打开网页"}).waitFor();
+  assert.deepEqual(await permissionPage.evaluate(()=>lastPermissions),{origins:["https://class.example/*"]});await permissionPage.close();
   await page.locator("#legacy-settings").evaluate(el=>el.open=false);await mkdir("data/screenshots",{recursive:true});await page.screenshot({path:"data/screenshots/extension.png",fullPage:true});
   console.log("PASS: Future Classroom and TUOJ list capture and opt-in, YOJ course table metadata, Zhifz latest/past lists, Chaoxing DOM metadata; settings draft persistence and permission handling. Synthetic responses and Chrome APIs; user's browser untouched.");
 } finally {

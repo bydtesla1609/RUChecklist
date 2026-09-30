@@ -90,9 +90,9 @@ if(!process.env.TRIAL_UI_FIXTURE) test("trial accounts enforce invitations, isol
     env.REGISTRATION_OPEN="false";assert.equal((await client().api("/api/register","POST",{username:"extra_user",password,invite:invites[0]})).status,403);
   }finally{db.close();}
 });
-if(!process.env.TRIAL_UI_FIXTURE) test("generic website input validates URLs, keeps unsupported entries honest and deduplicates",()=>{
+if(!process.env.TRIAL_UI_FIXTURE) test("generic website input validates URLs, distinguishes local-only recognition and deduplicates",()=>{
   const links=sourceLinks(["https://smartestu.cn/assignment","https://smartestu.cn/assignment","https://course.example/homework"]);
-  assert.equal(links.length,2);assert.equal(links[1].source,null);
+  assert.equal(links.length,2);assert.equal(links[1].source,"web:https://course.example");assert.equal(links[1].generic,true);
   for(const url of ["javascript:alert(1)","http://example.com","https://user:password@example.com"]){assert.throws(()=>sourceLinks([url]));}
   assert.throws(()=>sourceLinks(Array(13).fill("https://example.com")));
 });

@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "RUChecklist · 校园同步",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "将已登录的教学网站作业、人大课表及考试日程同步至个人看板。",
   "permissions": [
     "storage",
-    "alarms"
+    "alarms",
+    "scripting"
   ],
   "host_permissions": [
     "https://smartestu.cn/*",

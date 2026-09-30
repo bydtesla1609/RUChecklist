@@ -37,7 +37,7 @@ try {
   assert.equal(await page.locator("#website-list .website-row").count(),0);assert.equal(await page.locator("#sources-list .source-row").count(),0);
   async function addWebsite(url) {await page.locator("#add-source-link").click();await page.locator("#source-url").fill(url);await page.locator("#save-source-link").click();await page.locator("#source-links-form").waitFor({state:"hidden"});}
   await addWebsite("https://smartestu.cn/assignment");await addWebsite("https://course.example/homework");
-  assert.equal(await page.locator("#website-list .website-row").count(),2);assert.match(await page.locator("#unsupported-links").textContent(),/尚未适配/);
+  assert.equal(await page.locator("#website-list .website-row").count(),2);assert.equal(await page.getByRole("button",{name:"识别设置：course.example",exact:true}).count(),1);
   await page.evaluate(()=>{
     window.fixtureConnected=false;window.fixtureCommands=[];window.fixtureMessages=[];window.fixtureVersion="1.6.0";
     addEventListener("message",e=>{if(e.data?.kind!=="campus-board-command")return;fixtureCommands.push(e.data.command);fixtureMessages.push(e.data);if(e.data.command==="pair")fixtureConnected=true;
@@ -46,18 +46,22 @@ try {
   });
   await page.locator("#collector-recheck").click();await page.locator("#collector-connect").click();await page.locator("#collector-state").filter({hasText:"已连接"}).waitFor();
   await addWebsite("https://jw.ruc.edu.cn/Njw2017/index.html#/");await page.waitForFunction(()=>fixtureCommands.includes("academic-scan"));assert.equal(await page.locator("#academic-scan").count(),0);
+  await page.locator("#collector-scan").click();await page.locator("#source-error").filter({hasText:"1.9.0"}).waitFor();
+  await page.evaluate(()=>fixtureVersion="1.9.0");await page.locator("#collector-recheck").click();await page.locator("#collector-state").filter({hasText:"1.9.0"}).waitFor();
+  await page.getByRole("button",{name:"识别设置：course.example",exact:true}).click();await page.waitForFunction(()=>fixtureMessages.some(message=>message.command==="generic-setup" && message.url==="https://course.example/homework"));
   await page.locator("#collector-scan").click();await page.waitForFunction(()=>fixtureCommands.filter(x=>x==="scan").length>=1);
   await page.getByRole("button",{name:"同步：SmartEstu",exact:true}).click();
   await page.waitForFunction(()=>fixtureMessages.some(message=>message.command==="scan" && message.source==="smartestu"));
-  assert.equal(await page.locator("#sources-list .source-sync").count(),3);
+  assert.equal(await page.locator("#sources-list .source-sync").count(),4);
   assert.equal(await page.locator("#sync-settings").count(),0);assert.equal(await page.locator("#cloud-settings").isVisible(),true);await page.locator("#cloud-authorize").click();await page.waitForFunction(()=>fixtureCommands.includes("options"));
+  await page.evaluate(()=>fixtureVersion="1.6.0");await page.locator("#guide-install > summary").click();await page.locator("#collector-recheck").click();await page.locator("#collector-state").filter({hasText:"1.6.0"}).waitFor();
   await addWebsite("https://www.zhifz.com/#/zuoye");
   await page.locator("#source-links-result").filter({hasText:"1.7.0"}).waitFor();
   assert.equal(await page.evaluate(()=>fixtureMessages.some(message=>message.command==="scan" && message.source==="zhifz")),false);
   await page.evaluate(()=>fixtureVersion="1.7.0");await page.locator("#collector-recheck").click();
   await page.getByRole("button",{name:"同步：智夫子",exact:true}).click();
   await page.waitForFunction(()=>fixtureMessages.some(message=>message.command==="scan" && message.source==="zhifz"));
-  assert.equal(await page.locator("#sources-list .source-sync").count(),4);
+  assert.equal(await page.locator("#sources-list .source-sync").count(),5);
   await addWebsite("https://k.ruc.edu.cn/UserClient/homePage.html");await page.locator("#source-links-result").filter({hasText:"1.8.0"}).waitFor();
   await page.evaluate(()=>fixtureVersion="1.8.0");await page.locator("#collector-recheck").click();
   await addWebsite("http://yoj.ruc.edu.cn/index.php/index/course/detail.html");await addWebsite("https://ruc.thusaac.com/");
@@ -66,7 +70,7 @@ try {
     await page.getByRole("button",{name:`同步：${name}`,exact:true}).click();
     await page.waitForFunction(({source,scans})=>fixtureMessages.slice(scans).some(message=>message.command==="scan" && message.source===source),{source,scans});
   }
-  assert.equal(await page.locator("#sources-list .source-sync").count(),7);
+  assert.equal(await page.locator("#sources-list .source-sync").count(),8);
   await mkdir("data/screenshots",{recursive:true});await page.screenshot({path:"data/screenshots/trial-guide-desktop.png"});
   for(const width of [320,390,768]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);}
   await page.setViewportSize({width:390,height:844});await page.screenshot({path:"data/screenshots/trial-guide-mobile.png"});
@@ -89,5 +93,5 @@ try {
   await page.locator("#sources-button").click();await page.locator("#website-list a").filter({hasText:"course.example"}).waitFor();await page.locator("#sources-dialog .close-dialog").click();
   await page.locator("#logout").click();await page.locator("#logout-dialog").waitFor({state:"visible"});await page.locator("#logout-dialog .close-dialog").click();assert.equal(await page.locator("#workspace").isVisible(),true);await page.locator("#logout").click();await page.locator("#confirm-logout").click();await page.locator("#auth-recover").click();await page.locator("#recovery-code").fill(recovery);await page.locator("#password").fill("New-synthetic-password-123");await page.locator("#login-form button[type=submit]").click();await page.locator("#recovery-dialog").waitFor({state:"visible"});
   assert.notEqual(await page.locator("#recovery-value").textContent(),recovery);assert.deepEqual(errors,[]);
-  console.log("PASS: six-character passwords, eight-step auto/manual tour with cloud instructions, top-aligned empty sections, individual website configuration, all-source sync, cloud authorization entry, logout confirmation, invite registration, recovery download, username/password login, recovery reset, five-step setup with integrated cloud authorization and reload guide, missing-extension guidance, pairing, generic links, unsupported-site notice, first scan, persisted settings, logout cleanup and 320–768px layouts. Provider and extension use explicit test doubles.");
+  console.log("PASS: six-character passwords, eight-step auto/manual tour with cloud instructions, top-aligned empty sections, individual website configuration, all-source sync, cloud authorization entry, logout confirmation, invite registration, recovery download, username/password login, recovery reset, five-step setup with integrated cloud authorization and reload guide, missing-extension guidance, pairing, generic links, preview setup handoff, first scan, persisted settings, logout cleanup and 320–768px layouts. Provider and extension use explicit test doubles.");
 } finally {await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));database.close();}

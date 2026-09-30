@@ -1,4 +1,22 @@
 const $=id=>document.getElementById(id);
+if(new URL(location.href).searchParams.has("generic")){
+  $("generic-permission").hidden=false;
+  let target;
+  chrome.runtime.sendMessage({type:"generic-permission"}).then(result=>{
+    if(result.error)throw new Error(result.error);target=result;
+    $("generic-site").textContent=target.origin;$("generic-allow").disabled=false;
+    $("generic-permission").scrollIntoView({block:"start"});
+  }).catch(error=>{$("generic-result").textContent=error.message;});
+  $("generic-allow").onclick=async()=>{
+    try{
+      if(!target)return;
+      const granted=await chrome.permissions.request({origins:[`${target.origin}/*`]});
+      if(!granted)throw new Error("未授权，不会读取该网站。可再次点击此按钮授权。");
+      const result=await chrome.runtime.sendMessage({type:"generic-open"});if(result.error)throw new Error(result.error);
+      $("generic-result").textContent="已打开网页。请登录并进入列表，核对 RUChecklist 预览后确认导入。";
+    }catch(error){$("generic-result").textContent=error.message;}
+  };
+}
 $("version").textContent=`· v${chrome.runtime.getManifest().version}`;
 chrome.storage.local.get("reloadFromVersion").then(({reloadFromVersion})=>{
   if(!reloadFromVersion)return;

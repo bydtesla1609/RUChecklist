@@ -26,13 +26,18 @@ export function sourceLinks(values) {
     if(url.protocol!=="https:" && !(url.protocol==="http:" && url.hostname==="yoj.ruc.edu.cn" && !url.port))fail(400,"请填写 HTTPS 链接；YOJ 支持其原有 HTTP 地址");
     const host=url.hostname;
     const source=({"yoj.ruc.edu.cn":"yoj","k.ruc.edu.cn":"weilai","ruc.thusaac.com":"tuoj"})[host] || (host==="smartestu.cn"?"smartestu":host==="www.ketangpai.com"?"ketangpai":host==="www.zhifz.com"?"zhifz":/(^|\.)chaoxing\.com$/.test(host)?"chaoxing":host==="jw.ruc.edu.cn"?"ruc_courses":null);
-    return {url:url.href,source,name:source?SOURCES[source].name:host};
+    return {url:url.href,source:source || `web:${url.origin}`,name:source?SOURCES[source].name:host,...(!source?{generic:true}:{})};
   }).filter(link=>{if(unique.has(link.url))return false;unique.add(link.url);return true;});
 }
 async function savedLinks(env) {
   const saved=await env.DB.prepare("SELECT value FROM settings WHERE key='source_links'").first();
-  if(saved)return JSON.parse(saved.value);
+  if(saved)return sourceLinks(JSON.parse(saved.value).map(link=>link.url));
   return env.TRIAL_MODE?[]:sourceLinks(Object.entries(configuredSources(env)).filter(([id,source])=>!["zhifz","yoj","weilai","tuoj"].includes(id) && (!source.kind || source.name==="人大课表")).map(([,source])=>source.url));
+}
+async function allSources(env) {
+  const sources=configuredSources(env);
+  for(const link of await savedLinks(env))if(link.generic && !sources[link.source])sources[link.source]={name:link.name,url:link.url,browser_only:true,generic:true};
+  return sources;
 }
 const CATEGORIES = ["作业", "课程", "考试", "活动", "会议"];
 const STATUSES = ["todo", "doing", "done"];
@@ -87,6 +92,10 @@ function webURL(value, label="链接") {
 function sourceURL(source,value,fallback) {
   if(!value) return fallback;
   const url=new URL(webURL(value,"作业网页"));
+  if(source.startsWith("web:")) {
+    if(source!==`web:${url.origin}` || new URL(fallback).origin!==url.origin)fail(400,"通用作业链接必须来自已配置的网站");
+    return url.href;
+  }
   const domains={yoj:["yoj.ruc.edu.cn"],weilai:["k.ruc.edu.cn"],tuoj:["ruc.thusaac.com"],smartestu:["smartestu.cn"],ketangpai:["ketangpai.com"],chaoxing:["chaoxing.com"],zhifz:["www.zhifz.com"],ruc_courses:["jw.ruc.edu.cn"],ruc_exams:["jw.ruc.edu.cn"]}[source];
   if((url.protocol!=="https:" && !(source==="yoj" && url.protocol==="http:" && url.hostname==="yoj.ruc.edu.cn" && !url.port)) || !domains.some(host=>url.hostname===host || url.hostname.endsWith(`.${host}`))) fail(400,"作业网页与平台不匹配");
   return url.href;
@@ -165,7 +174,7 @@ async function importCourseInput(input,db,sources) {
 }
 export async function applyImport(payload,db,sources) {
   const {source,tasks,error}=payload;
-  if(!Object.hasOwn(SOURCES,source) || !Array.isArray(tasks) || tasks.length>30) fail(400,"每批最多导入 30 项作业，且必须指定已配置来源");
+  if(typeof source!=="string" || !(Object.hasOwn(SOURCES,source) || source.startsWith("web:") && sources[source]?.generic) || !Array.isArray(tasks) || tasks.length>30) fail(400,"每批最多导入 30 项作业，且必须指定已配置来源");
   if(error!==undefined && (typeof error!=="string" || error.length>300 || tasks.length)) fail(400,"错误状态格式不正确");
   const count=payload.task_count ?? tasks.length;
   if(!Number.isInteger(count) || count<0 || count>10000) fail(400,"作业数量不正确");
@@ -308,12 +317,12 @@ async function route(request, env) {
     ]);
     return json({ok:true},200,{"Set-Cookie":cookie(request,token,30*86400)});
   }
-  if(path==="/api/import" && method==="POST") return importTasks(request,db,{...configuredSources(env),...(env.TRIAL_MODE?{trial:true}:{})});
+  if(path==="/api/import" && method==="POST") return importTasks(request,db,{...await allSources(env),...(env.TRIAL_MODE?{trial:true}:{})});
   if(path==="/api/academic/timetable" && method==="POST") {
     await collectorAuth(request,db);const input=globalThis.RUAcademic.courseInput((await body(request)).academic),table=globalThis.RUAcademic.timetable(input);
     await db.prepare("INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE settings.value IS NOT excluded.value").bind(`timetable:${input.semester}`,JSON.stringify(table)).run();return json({ok:true});
   }
-  if(path==="/api/collector-config" && method==="GET") { await collectorAuth(request,db); return json({sources:configuredSources(env),links:await savedLinks(env),account:env.TRIAL_USER || "personal",cloud_enabled:(await cloudStatus(env)).enabled}); }
+  if(path==="/api/collector-config" && method==="GET") { await collectorAuth(request,db); return json({sources:await allSources(env),links:await savedLinks(env),account:env.TRIAL_USER || "personal",cloud_enabled:(await cloudStatus(env)).enabled}); }
   if(path==="/api/cloud-authorize" && method==="POST") {await collectorAuth(request,db);return json(await enableCloud(env));}
   if(path==="/api/cloud-credentials" && method==="POST") {await collectorAuth(request,db);const value=await body(request);return json(await saveCloudRecipe(env,value.source,value.recipe));}
   const hash=await sessionHash(request);
@@ -353,7 +362,7 @@ async function route(request, env) {
   if(path==="/api/board" && method==="GET") {
     const [tasks,sources,files,storage]=await db.batch([db.prepare("SELECT * FROM tasks WHERE deleted=0 AND (category='课程' OR status<>'done' OR completed_at IS NULL OR completed_at>?) ORDER BY created_at DESC").bind(archiveCutoff()),db.prepare("SELECT sources.*, (SELECT count(*) FROM tasks WHERE tasks.source=sources.id AND tasks.deleted=0) AS imported_count, (SELECT count(*) FROM tasks WHERE tasks.source=sources.id AND tasks.deleted=0 AND tasks.source_status IS NOT NULL) AS status_count FROM sources"),
       db.prepare("SELECT id,name,type,size FROM files WHERE id IN (SELECT value FROM tasks,json_each(tasks.attachments) WHERE tasks.deleted=0)"),db.prepare("SELECT coalesce(sum(size),0) AS used FROM files")]);
-    const configuration=configuredSources(env);
+    const configuration=await allSources(env);
     const byId=new Map(files.results.map(file=>[file.id,file]));
     const tables=await db.prepare("SELECT value FROM settings WHERE key LIKE 'timetable:%'").all();
     return json({tasks:tasks.results.map(task=>expose(task,byId)),timetables:tables.results.map(row=>JSON.parse(row.value)),sources:Object.entries(configuration).map(([id,config])=>({id,last_seen:null,task_count:0,imported_count:0,status_count:0,...sources.results.find(source=>source.id===id),...config})),storage:{used:storage.results[0].used,limit:env.TRIAL_MODE?5*1024*1024:STORAGE_LIMIT,file_limit:env.TRIAL_MODE?1024*1024:FILE_LIMIT},server_time:now()});
