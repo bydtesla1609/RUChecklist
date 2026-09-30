@@ -103,7 +103,8 @@ async function smartSession(recipe,fetcher) {
   if(!session || [session.sessionContext,session.csrfToken].some(value=>typeof value!=="string" || !value || value.length>16000 || /[\r\n]/.test(value))) throw error(401,"SmartEstu 登录授权已失效，请在浏览器登录后重新授权");
   return {...recipe,headers:{...recipe.headers,"x-auth-protocol":"cookie-v1","x-session-context":session.sessionContext,"x-csrf-token":session.csrfToken}};
 }
-export async function runCloud(env,importBatch,{fetcher=fetch,Rewriter=globalThis.HTMLRewriter}={}) {
+export async function runCloud(env,importBatch,{fetcher=fetch,Rewriter=globalThis.HTMLRewriter,source:onlySource}={}) {
+  if(onlySource!==undefined && !sources.includes(onlySource)) throw error(400,"不支持此云端来源");
   if(await get(env,"cloud_enabled")!=="1") return {skipped:true};
   // One board, one collector at a time; the lease also protects overlapping manual and scheduled runs.
   const expiry=String(Date.now()+600000);
@@ -112,6 +113,7 @@ export async function runCloud(env,importBatch,{fetcher=fetch,Rewriter=globalThi
   const result={};
   try {
     for(const source of sources) {
+      if(onlySource && source!==onlySource)continue;
       if(await get(env,"cloud_enabled")!=="1") break;
       if(env.TRIAL_MODE && !JSON.parse(await get(env,"source_links") || "[]").some(link=>link.source===source))continue;
       const encrypted=await get(env,`cloud_credential_${source}`);if(!encrypted) continue;

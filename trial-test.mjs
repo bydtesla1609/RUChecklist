@@ -144,6 +144,10 @@ if(!process.env.TRIAL_UI_FIXTURE) test("extension pairs to the correct pilot acc
   await vm.runInContext("performScan()",context);assert.deepEqual(opened,configuration.links.slice(0,2).map(l=>l.url));
   configuration.links[0].url="https://smartestu.cn/assignment?course=replaced";opened.length=0;
   await vm.runInContext("performScan()",context);assert.equal(opened[0],configuration.links[0].url);
+  configuration.links.push({source:"ketangpai",url:"https://www.ketangpai.com/#/main/classDetail?courseid=one"});opened.length=0;
+  await vm.runInContext("boardControl({command:'scan',source:'ketangpai',account:'alice-id'},sender)",context);
+  assert.deepEqual(opened,[configuration.links.at(-1).url]);
+  await assert.rejects(()=>vm.runInContext("performScan(false,false,'unknown')",context),/未知/);
   configuration={...configuration,links:[]};await assert.rejects(()=>vm.runInContext("performScan()",context),/第 3 步/);
   configuration.account="bob-id";await assert.rejects(()=>vm.runInContext("boardControl(pair,sender)",context),/不属于/);
   await assert.rejects(()=>vm.runInContext("boardControl(pair,{url:'https://evil.example',tab:{id:2},frameId:0})",context),/不允许/);

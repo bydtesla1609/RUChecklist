@@ -92,7 +92,8 @@ async function upload(message,sender) {
   await chrome.action.setBadgeText({text:Object.values(sourceResults).some(value=>value.error)?"!":""});
   return {ok:true,changed};
 }
-async function performScan(force=false,academicOnly=false) {
+async function performScan(force=false,academicOnly=false,onlySource) {
+  if(onlySource!==undefined && !Object.hasOwn(SOURCES,onlySource))throw new Error("未知同步来源");
   const {enabled,boardURL,token,managedTabs={},sourceURLs={}}=await chrome.storage.local.get(["enabled","boardURL","token","managedTabs","sourceURLs"]);
   if(!boardURL || !token) throw new Error("请先连接看板");
   if(!enabled && !force) throw new Error("自动同步已暂停，请先开启同步");
@@ -101,14 +102,14 @@ async function performScan(force=false,academicOnly=false) {
   const config=await response.json(),configuration=config.sources;
   const entries=config.links===undefined?Object.entries(SOURCES).map(([source,url])=>({source,url:sourceURLs[source] || configuration?.[source]?.url || url})):
     config.links.filter(link=>link.source).flatMap(link=>link.source==="ruc_courses"?[{source:"ruc_courses",url:SOURCES.ruc_courses},{source:"ruc_exams",url:SOURCES.ruc_exams}]:[link]);
-  const selected=[...new Map(entries.filter(link=>!academicOnly || link.source.startsWith("ruc_")).map(link=>[link.url,link])).values()];
+  const selected=[...new Map(entries.filter(link=>(!academicOnly || link.source.startsWith("ruc_")) && (!onlySource || link.source===onlySource)).map(link=>[link.url,link])).values()];
   if(!selected.length)throw new Error("请在网页的第 3 步保存已适配网站的链接");
   await chrome.storage.local.set({configuredSources:[...new Set(entries.map(link=>link.source))]});
   for(const [index,{source,url:address}] of selected.entries()) {
     const candidate=new URL(address);
     if(candidate.protocol!=="https:" || candidate.username || candidate.password || sourceFor(candidate.href)!==source) throw new Error(`${source} 作业页地址不正确`);
     const url=candidate.href;
-    const key=config.links===undefined?source:`${source}:${index}`;
+    const key=config.links===undefined?source:`${source}:${url}`;
     let tab;try{if(managedTabs[key]) tab=await chrome.tabs.get(managedTabs[key]);}catch{}
     if(tab && !tab.active && tab.url && sourceFor(tab.url)===source) {
       if(source==="chaoxing" || tab.url!==url) await chrome.tabs.update(tab.id,{url});
@@ -120,7 +121,10 @@ async function performScan(force=false,academicOnly=false) {
   }
   await chrome.storage.local.set({managedTabs});return {ok:true};
 }
-function scan(force=false) {return scanning ||= performScan(force).finally(()=>{scanning=null;});}
+function scan(force=false,source) {
+  if(scanning) return Promise.reject(new Error("正在打开同步页面，请稍后重试"));
+  return scanning=performScan(force,false,source).finally(()=>{scanning=null;});
+}
 async function configure() {
   const {enabled}=await chrome.storage.local.get("enabled");await chrome.alarms.clear("collect");
   if(enabled) await chrome.alarms.create("collect",{periodInMinutes:15});return {ok:true};
@@ -149,7 +153,7 @@ async function boardControl(message,sender) {
     if(typeof message.enabled!=="boolean") throw new Error("同步设置不正确");
     await chrome.storage.local.set({enabled:message.enabled});return configure();
   }
-  if(message.command==="scan") return scan();
+  if(message.command==="scan") return scan(false,message.source);
   if(message.command==="academic-scan")return performScan(false,true);
   throw new Error("未知操作");
 }

@@ -38,6 +38,8 @@
       if(row.pkztcode==="8" || row.sftkcode==="1")continue;
       if(!row.id || !row.kc_name || !/^[1-7]\d{4,}$/.test(row.pksj || ""))throw new Error("课表记录格式不完整");
       const weekday=Number(row.pksj[0]);
+      const syllabus=row.bkxt004id && row.jczy013id && row.kkgl004id
+        ? `https://jw.ruc.edu.cn/Njw2017/student/student-choice-center/syllabus-entry-check.html#/?param=${encodeURIComponent(row.jczy013id)},${encodeURIComponent(row.kkgl004id)}` : courseURL;
       const times=slots.filter(slot=>Number(slot.idjkssj)<Number(row.idjjssj) && Number(row.idjkssj)<Number(slot.idjjssj)).sort((a,b)=>Number(a.idjkssj)-Number(b.idjkssj));
       const start=clock(row.djkssj) || clock(times[0]?.djkssj),end=clock(row.djjssj) || clock(times.at(-1)?.djjssj);
       if(!start || !end)throw new Error(`课表节次 ${Number(row.pksj.slice(1,3))}–${Number(row.pksj.slice(-2))} 未匹配起止时间（匹配 ${times.length} 个节次）`);
@@ -46,7 +48,7 @@
         const date=day(entry?.rq);
         if(!date)throw new Error(`第 ${week} 周、星期 ${weekday} 未取得日期（周历 ${calendar.jxzllist.length} 条，日期类型 ${typeof entry?.rq}）`);
         const starts_at=stamp(date,start),ends_at=stamp(date,end);if(ends_at<=starts_at)throw new Error("课表节次时间顺序异常");
-        result.push({external_id:`${row.jczy013id || semester}:${row.id}:${week}`,title:row.kc_name,location:row.js_name || "",starts_at,ends_at,source_url:courseURL,
+        result.push({external_id:`${row.jczy013id || semester}:${row.id}:${week}`,title:row.kc_name,location:row.js_name || "",starts_at,ends_at,source_url:syllabus,
           details:{teacher:row.teachernames || "",assistant:row.zjls_name || "",campus:row.xq_name || "",semester:String(semester || row.jczy013id || ""),semester_label:semesterLabel || String(semester),course_id:String(row.id),weekday:String(weekday),week:String(week),period:`${Number(row.pksj.slice(1,3))}–${Number(row.pksj.slice(-2))}节`}});
       }
     }
@@ -73,7 +75,7 @@
     }));
     const selected=pick(input,["semester","semester_label"]);
     if(!selected.semester)throw new Error("缺少课表学期");
-    return {...selected,rows:input.rows.map(row=>pick(row,["id","jczy013id","kc_name","pksj","idjkssj","idjjssj","pkzc","djkssj","djjssj","pkztcode","sftkcode","teachernames","js_name","xq_name","zjls_name"])),
+    return {...selected,rows:input.rows.map(row=>pick(row,["id","jczy013id","kkgl004id","bkxt004id","kc_name","pksj","idjkssj","idjjssj","pkzc","djkssj","djjssj","pkztcode","sftkcode","teachernames","js_name","xq_name","zjls_name"])),
       calendar:{jxzllist:input.calendar.jxzllist.map(row=>pick(row,["zc","xq","rq"]))},
       models:input.models.map(model=>{
         if(!Array.isArray(model.pkgl00201List) || model.pkgl00201List.length>50)throw new Error("节次时间表不完整");

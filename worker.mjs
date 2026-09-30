@@ -96,6 +96,8 @@ export function validate(value, imported=false) {
   const category=["科研","竞赛","组织"].includes(value.category)?"活动":value.category || "作业", status=value.status || "todo", title=value.title ?? value.content, location=value.location ?? "", todos=value.todos ?? [];
   if(!CATEGORIES.includes(category) || !STATUSES.includes(status)) fail(400,"任务分类或进度不正确");
   if(typeof title!=="string" || !title.trim() || title.length>4000) fail(400,"请填写标题（最多 4000 个字符）");
+  const content=value.content ?? "";
+  if(typeof content!=="string" || content.length>10000)fail(400,"内容最多 10000 个字符");
   if(typeof location!=="string" || location.length>300) fail(400,"地点最多 300 个字符");
   if(!Array.isArray(todos) || todos.length>100) fail(400,"待办事项最多 100 项");
   const ids=new Set();
@@ -121,7 +123,7 @@ export function validate(value, imported=false) {
     const text=value.details?.[name];if(text===undefined)continue;
     if(typeof text!=="string" || text.length>300) fail(400,"日程信息最多 300 字");details[name]=text.trim();
   }
-  return {category,title:title.trim(),content:title.trim(),location:location.trim(),todos:checklist,links,attachments,due_at,starts_at,ends_at,status,details};
+  return {category,title:title.trim(),content:content.trim(),location:location.trim(),todos:checklist,links,attachments,due_at,starts_at,ends_at,status:category==="课程"?"todo":category!=="作业" && status==="doing"?"todo":status,details};
 }
 async function collectorAuth(request,db) {
   const token=request.headers.get("Authorization")?.match(/^Bearer ([A-Za-z0-9_-]{20,100})$/)?.[1];
@@ -178,14 +180,14 @@ export async function applyImport(payload,db,sources) {
   const statements=[db.prepare(`INSERT INTO tasks(id,category,title,content,due_at,status,source,external_id,source_url,course,created_at,updated_at,completed_at,source_status)
       SELECT ${Array.from({length:14},(_,index)=>`json_extract(value,'$[${index}]')`).join(",")} FROM json_each(?) WHERE 1
       ON CONFLICT(source,external_id) DO UPDATE SET
-      title=CASE WHEN instr(tasks.overrides,'"title"')=0 AND instr(tasks.overrides,'"content"')=0 THEN excluded.title ELSE tasks.title END,
-      content=CASE WHEN instr(tasks.overrides,'"title"')=0 AND instr(tasks.overrides,'"content"')=0 THEN excluded.content ELSE tasks.content END,
+      title=CASE WHEN instr(tasks.overrides,'"title"')=0 THEN excluded.title ELSE tasks.title END,
+      content=CASE WHEN instr(tasks.overrides,'"content"')=0 THEN CASE WHEN excluded.content<>'' THEN excluded.content WHEN tasks.content=tasks.title THEN excluded.title ELSE tasks.content END ELSE tasks.content END,
       due_at=CASE WHEN tasks.category='作业' AND instr(tasks.overrides,'"due_at"')=0 THEN coalesce(excluded.due_at,tasks.due_at) ELSE tasks.due_at END,
       status=${nextStatus},
       completed_at=CASE WHEN (${nextStatus})='done' THEN CASE WHEN tasks.status='done' AND tasks.completed_at IS NOT NULL THEN tasks.completed_at ELSE excluded.updated_at END ELSE NULL END,
       source_status=coalesce(excluded.source_status,tasks.source_status),
       course=excluded.course, source_url=excluded.source_url, updated_at=excluded.updated_at, revision=tasks.revision+1
-      WHERE tasks.deleted=0 AND ((instr(tasks.overrides,'"title"')=0 AND instr(tasks.overrides,'"content"')=0 AND tasks.title IS NOT excluded.title)
+      WHERE tasks.deleted=0 AND ((instr(tasks.overrides,'"title"')=0 AND tasks.title IS NOT excluded.title) OR (instr(tasks.overrides,'"content"')=0 AND excluded.content<>'' AND tasks.content IS NOT excluded.content)
       OR (tasks.category='作业' AND instr(tasks.overrides,'"due_at"')=0 AND excluded.due_at IS NOT NULL AND tasks.due_at IS NOT excluded.due_at) OR tasks.course IS NOT excluded.course OR tasks.source_url IS NOT excluded.source_url OR (${remoteChanged}))`)
       .bind(JSON.stringify(rows))];
   statements.push(db.prepare("UPDATE sources SET last_seen=?,task_count=?,error=? WHERE id=?").bind(stamp,count,error || null,source));
@@ -200,9 +202,9 @@ async function applyAcademicImport({source,tasks,error,task_count=tasks.length},
     const task=validate({...item,category,status:"todo"},true);
     return [crypto.randomUUID(),category,task.title,task.content,task.location,task.starts_at,task.ends_at,JSON.stringify(task.details),source,item.external_id,sourceURL(source,item.source_url,sources[source].url),stamp,stamp];
   });
-  const unmodified=field=>["title","content"].includes(field)?`instr(tasks.overrides,'"title"')=0 AND instr(tasks.overrides,'"content"')=0`:`instr(tasks.overrides,'"${field}"')=0`;
-  const assignments=fields.map(field=>`${field}=CASE WHEN ${unmodified(field)} THEN excluded.${field} ELSE tasks.${field} END`);
-  const changes=fields.map(field=>`(${unmodified(field)} AND tasks.${field} IS NOT excluded.${field})`);
+  const unmodified=field=>`instr(tasks.overrides,'"${field}"')=0`;
+  const assignments=fields.map(field=>`${field}=CASE WHEN ${unmodified(field)} THEN ${field==="content"?"CASE WHEN excluded.content<>'' THEN excluded.content WHEN tasks.content=tasks.title THEN excluded.title ELSE tasks.content END":`excluded.${field}`} ELSE tasks.${field} END`);
+  const changes=fields.map(field=>`(${unmodified(field)} ${field==="content"?"AND excluded.content<>'' ":""}AND tasks.${field} IS NOT excluded.${field})`);
   const results=await db.batch([
     db.prepare(`INSERT INTO tasks(id,category,title,content,location,starts_at,ends_at,details,source,external_id,source_url,created_at,updated_at)
       SELECT ${Array.from({length:13},(_,i)=>`json_extract(value,'$[${i}]')`).join(",")} FROM json_each(?) WHERE 1
@@ -323,7 +325,10 @@ async function route(request, env) {
   }
   if(path==="/api/cloud" && method==="GET") return json(await cloudStatus(env));
   if(path==="/api/cloud" && method==="DELETE") return json(await revokeCloud(env));
-  if(path==="/api/cloud/run" && method==="POST") return json(await runCloud(env,payload=>applyImport(payload,db,configuredSources(env))));
+  if(path==="/api/cloud/run" && method==="POST") {
+    const {source}=await body(request);
+    return json(await runCloud(env,payload=>applyImport(payload,db,configuredSources(env)),{source}));
+  }
   if(path==="/api/academic/snapshot" && method==="GET") {
     const saved=await db.prepare("SELECT value FROM settings WHERE key='academic_snapshot'").first();
     return json(saved?JSON.parse(saved.value):null);
@@ -342,7 +347,7 @@ async function route(request, env) {
     return json({ok:true},200,{"Set-Cookie":cookie(request,"",0)});
   }
   if(path==="/api/board" && method==="GET") {
-    const [tasks,sources,files,storage]=await db.batch([db.prepare("SELECT * FROM tasks WHERE deleted=0 AND (status<>'done' OR completed_at IS NULL OR completed_at>?) ORDER BY created_at DESC").bind(archiveCutoff()),db.prepare("SELECT sources.*, (SELECT count(*) FROM tasks WHERE tasks.source=sources.id AND tasks.deleted=0) AS imported_count, (SELECT count(*) FROM tasks WHERE tasks.source=sources.id AND tasks.deleted=0 AND tasks.source_status IS NOT NULL) AS status_count FROM sources"),
+    const [tasks,sources,files,storage]=await db.batch([db.prepare("SELECT * FROM tasks WHERE deleted=0 AND (category='课程' OR status<>'done' OR completed_at IS NULL OR completed_at>?) ORDER BY created_at DESC").bind(archiveCutoff()),db.prepare("SELECT sources.*, (SELECT count(*) FROM tasks WHERE tasks.source=sources.id AND tasks.deleted=0) AS imported_count, (SELECT count(*) FROM tasks WHERE tasks.source=sources.id AND tasks.deleted=0 AND tasks.source_status IS NOT NULL) AS status_count FROM sources"),
       db.prepare("SELECT id,name,type,size FROM files WHERE id IN (SELECT value FROM tasks,json_each(tasks.attachments) WHERE tasks.deleted=0)"),db.prepare("SELECT coalesce(sum(size),0) AS used FROM files")]);
     const configuration=configuredSources(env);
     const byId=new Map(files.results.map(file=>[file.id,file]));
@@ -353,7 +358,7 @@ async function route(request, env) {
     const category=url.searchParams.get("category") || "全部", offset=Number(url.searchParams.get("offset") || 0);
     if(category!=="全部" && !CATEGORIES.includes(category)) fail(400,"归档分类不正确");
     if(!Number.isSafeInteger(offset) || offset<0 || offset>1000000) fail(400,"归档页码不正确");
-    const where="deleted=0 AND status='done' AND completed_at<=?"+(category==="全部"?"":" AND category=?");
+    const where="deleted=0 AND category<>'课程' AND status='done' AND completed_at<=?"+(category==="全部"?"":" AND category=?");
     const values=[archiveCutoff(),...(category==="全部"?[]:[category])];
     const [items,count]=await db.batch([
       db.prepare(`SELECT id,title,category,due_at,starts_at,ends_at,completed_at,revision FROM tasks WHERE ${where} ORDER BY completed_at DESC,id DESC LIMIT 100 OFFSET ?`).bind(...values,offset),
@@ -391,8 +396,8 @@ async function route(request, env) {
     if(!previous) fail(404,"任务已不存在");
     if(previous.revision!==data.revision) fail(409,"此任务已在另一设备更新，请关闭编辑窗口并重新打开");
     const editable=Object.fromEntries(FIELDS.filter(f=>Object.hasOwn(data,f)).map(f=>[f,data[f]]));
-    // Keep older clients and the existing assignment extension compatible.
-    if(Object.hasOwn(editable,"content") && !Object.hasOwn(editable,"title")) editable.title=editable.content;
+    // Old records duplicated their title in content; preserve that compatibility until a memo is supplied.
+    if(Object.hasOwn(editable,"title") && !Object.hasOwn(editable,"content") && previous.content===previous.title)editable.content=editable.title;
     const task=validate({...expose(previous),...editable},!!previous.source);
     await fileReferences(task.attachments,db);
     const overrides=[...new Set([...JSON.parse(previous.overrides),...Object.keys(editable).filter(f=>stored(task,f)!==previous[f])])];

@@ -44,6 +44,11 @@ test("cloud authorization is encrypted, scoped, independently scheduled, increme
       return Response.json({list:[{contenttype:4,id:"two",title:"课堂派作业",mstatus:1}]});
     };
     let run=await api("/api/cloud/run","POST",{});assert.equal(run.status,200);assert.equal(run.data.smartestu.changed,2);assert.equal(run.data.smartestu.status_count,2);assert.equal(run.data.ketangpai.changed,1);
+    database.exec("UPDATE tasks SET content=title"); // Old records must not be rewritten by unchanged imports.
+    const beforeSingle=requests,otherState=database.prepare("SELECT value FROM settings WHERE key='cloud_state_smartestu'").get().value;
+    const single=await api("/api/cloud/run","POST",{source:"ketangpai"});assert.deepEqual(Object.keys(single.data),["ketangpai"]);assert.equal(requests-beforeSingle,1);
+    assert.equal(database.prepare("SELECT value FROM settings WHERE key='cloud_state_smartestu'").get().value,otherState);
+    assert.equal((await api("/api/cloud/run","POST",{source:"ruc_courses"})).status,400);
     let tasks=(await api("/api/board")).data.tasks;assert.equal(tasks.length,3);assert.ok(tasks.every(task=>task.status==="done" && task.completed_at));
     const previous=tasks.map(task=>[task.id,task.revision,task.completed_at]);
     const waits=[];await worker.scheduled({},env,{waitUntil(p){waits.push(p);}});await Promise.all(waits);

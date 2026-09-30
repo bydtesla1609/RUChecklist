@@ -18,6 +18,8 @@ test("academic parser uses teaching dates, odd/even weeks and exact times; rejec
   const tasks=courses([row],calendar,models,"term");
   assert.equal(tasks.length,2);assert.equal(tasks[0].starts_at,"2026-09-07T00:00:00.000Z");assert.equal(tasks[0].ends_at,"2026-09-07T01:30:00.000Z");
   assert.equal(tasks[1].external_id,"term:lesson:3");assert.equal(tasks[0].details.teacher,"示例教师");
+  const linked=globalThis.RUAcademic.courseInput({rows:[{...row,bkxt004id:"outline",kkgl004id:"class"}],calendar,models,semester:"term"});
+  assert.equal(courses(linked.rows,linked.calendar,linked.models,"term")[0].source_url,"https://jw.ruc.edu.cn/Njw2017/student/student-choice-center/syllabus-entry-check.html#/?param=term,class");
   const numericCalendar={jxzllist:calendar.jxzllist.map(entry=>({...entry,rq:Date.parse(`${entry.rq}T00:00:00+08:00`)}))};
   assert.deepEqual(courses([row],numericCalendar,models,"term"),tasks);
   assert.throws(()=>courses([row],{jxzllist:[]},models),/日期/);
@@ -78,12 +80,15 @@ test("academic imports are idempotent, preserve manual fields/state and never re
     assert.equal((await upload()).data.changed,1);
     const get=async()=>(await api("/api/board")).data.tasks[0];let task=await get();
     assert.equal(task.category,"课程");assert.equal(task.details.teacher,"示例教师");const revision=task.revision;
+    db.prepare("UPDATE tasks SET content=title WHERE id=?").run(task.id); // Existing installations duplicated the title.
     assert.equal((await upload()).data.changed,0);assert.equal((await get()).revision,revision);
     await api(`/api/tasks/${task.id}`,"PATCH",{title:"我的标题",location:"自定地点",status:"doing",details:{teacher:"保留教师"},revision});
     item.title="新标题";item.location="新地点";item.starts_at="2026-09-07T02:00:00Z";item.ends_at="2026-09-07T03:00:00Z";item.details.teacher="新教师";
     assert.equal((await upload()).data.changed,1);task=await get();
-    assert.equal(task.title,"我的标题");assert.equal(task.location,"自定地点");assert.equal(task.details.teacher,"保留教师");assert.equal(task.status,"doing");assert.equal(task.starts_at,"2026-09-07T02:00:00.000Z");
+    assert.equal(task.title,"我的标题");assert.equal(task.location,"自定地点");assert.equal(task.details.teacher,"保留教师");assert.equal(task.status,"todo");assert.equal(task.starts_at,"2026-09-07T02:00:00.000Z");
     assert.equal((await upload()).data.changed,0);assert.equal(task.content,"我的标题");
+    let memo=(await api(`/api/tasks/${task.id}`,"PATCH",{content:"课程备忘：携带讲义",revision:task.revision})).data;
+    assert.equal(memo.title,"我的标题");item.title="再改课程标题";await upload();memo=await get();assert.equal(memo.content,"课程备忘：携带讲义");task=memo;
     await api(`/api/tasks/${task.id}`,"DELETE",{revision:task.revision});assert.equal((await upload()).data.changed,0);assert.equal((await api("/api/board")).data.tasks.length,0);
     const invalid=await api("/api/import","POST",{source:"ruc_exams",tasks:[{...item,source_url:"https://evil.example/"}]},auth);assert.equal(invalid.status,400);
     assert.equal((await api("/api/import","POST",{source:"ruc_exams",tasks:[]},auth)).status,200);

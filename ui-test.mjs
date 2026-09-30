@@ -46,6 +46,9 @@ try {
   assert.equal(await page.locator("#task-title").getAttribute("required"), "");
   await page.locator("#task-title").fill("课程研究 · 读懂一篇论文");
   await page.locator("#task-location").fill("图书馆 · 三层");
+  await page.locator("#task-content").fill("活动议程：交流阅读心得\n组织者：文学社");
+  assert.equal(await page.locator("#schedule-person").isVisible(),false);
+  assert.equal(await page.locator("#status").isVisible(),false);
   await page.locator("#starts-at").fill("2026-10-01T10:00"); await page.locator("#ends-at").fill("2026-10-08T18:00");
   await addTodo(page.locator("#task-todos"), "读论文"); await addTodo(page.locator("#task-todos"), "整理笔记");
   await page.locator("#add-link").click();
@@ -103,18 +106,25 @@ try {
   await card.locator(".task-title").click();
   assert.equal(await page.locator("#task-dialog").isVisible(), false);
   assert.equal(await card.locator(".task-title").evaluate(node => node.tagName), "H3");
-  assert.equal(await card.locator("select").count(), 1);
-  await saved(page,()=>card.locator(".task-status").selectOption("doing"));
+  assert.equal(await card.locator("select").count(),0);
+  assert.match(await card.locator(".task-content").textContent(),/活动议程/);
+  assert.equal(await page.locator(".schedule-columns>.column").count(),2);
+  await saved(page,()=>card.locator(".task-status").check());
   await page.waitForFunction(()=>!document.querySelector("article[data-busy]"));
-  assert.equal(await card.locator(".task-status").inputValue(),"doing");
+  assert.equal(await card.locator(".task-status").isChecked(),true);
+  await saved(page,()=>card.locator(".task-status").uncheck());
   assert.deepEqual(await card.locator(".task-actions button").allTextContents(), ["编辑", "删除"]);
   await card.locator(".edit-task").click();
   assert.equal(await page.locator("#task-location").inputValue(), "图书馆 · 三层");
+  assert.equal(await page.locator("#task-content").inputValue(),"活动议程：交流阅读心得\n组织者：文学社");
+  assert.equal(await page.evaluate(()=>{const ids=["range-fields","task-location","task-content","task-todos"];return ids.every((id,i)=>!i || document.getElementById(ids[i-1]).compareDocumentPosition(document.getElementById(id)) & Node.DOCUMENT_POSITION_FOLLOWING);}),true);
+  assert.equal(await page.locator("#task-done").isVisible(),true);await page.locator("#task-done").check();
   await page.locator("#task-todos .todo-text").first().click();
   await page.locator("#task-todos .todo-edit").fill("写一页阅读小结");
   await page.locator("#task-todos").getByRole("button", {name: "确认待办修改"}).click();
   await page.locator("#save-task").click(); await page.locator("#task-dialog").waitFor({state: "hidden"});
   await card.locator(".todo-text").filter({hasText: "写一页阅读小结"}).waitFor();
+  assert.equal(await card.locator(".task-status").isChecked(),true);await saved(page,()=>card.locator(".task-status").uncheck());
   // A second device changing the same task must not erase a local draft.
   await card.locator(".todo-text").first().click(); await card.locator(".todo-edit").fill("未保存的本地草稿");
   await phone.evaluate(() => refresh());
@@ -272,6 +282,8 @@ try {
     await api("/api/tasks","POST",{category:"考试",title:"期中考试验证",location:"示例考场",starts_at:`${shiftDay(day,2)}T09:00:00+08:00`,ends_at:`${shiftDay(day,2)}T11:00:00+08:00`,details:{seat:"28"}});
     await refresh();
   },{day:scheduleDate,weekStart});
+  const outline="https://jw.ruc.edu.cn/Njw2017/student/student-choice-center/syllabus-entry-check.html#/?param=term-a,class-a";
+  database.prepare("UPDATE tasks SET source_url=? WHERE title='教学周课表验证'").run(outline);await page.evaluate(()=>refresh());
   await category(page,"课程").click();
   assert.equal(await page.locator(".summary").isVisible(),false);
   assert.equal(await page.locator(".timetable thead th").count(),8);
@@ -283,9 +295,13 @@ try {
   await page.locator("#course-week").selectOption("5");assert.equal(await page.locator(".course-block").count(),1);
   await page.locator("#course-semester").selectOption("term-old");assert.equal(await page.locator(".course-block h3").textContent(),"上学期课程");
   await page.locator("#course-semester").selectOption("term-a");
-  await page.getByRole("button",{name:"查看课程：教学周课表验证",exact:true}).click();
-  assert.equal(await page.locator("#course-occurrence option").count(),2);
-  await page.locator("#course-detail .edit-task").click();assert.equal(await page.locator("#schedule-person").inputValue(),"示例教师");
+  assert.equal(await page.locator(".course-block button").count(),0);
+  assert.equal(await page.getByRole("link",{name:"查看教学大纲：教学周课表验证",exact:true}).getAttribute("href"),outline);
+  const courseCard=await page.evaluate(()=>{const node=card(tasks.find(t=>t.title==="教学周课表验证"));return {controls:node.querySelectorAll(".task-status").length,label:node.querySelector(".task-footer>a").textContent,url:node.querySelector(".task-footer>a").href};});
+  assert.deepEqual(courseCard,{controls:0,label:"教学大纲 ↗",url:outline});
+  await page.evaluate(()=>openTask(tasks.find(t=>t.title==="教学周课表验证")));
+  assert.equal(await page.locator("#status").isVisible(),false);assert.equal(await page.locator("#task-done").isVisible(),false);
+  assert.equal(await page.locator("#schedule-person").inputValue(),"示例教师");
   await page.locator("#task-title").fill("教学周课表验证 · 改名");await page.locator("#save-task").click();await page.locator("#task-dialog").waitFor({state:"hidden"});
   assert.equal(JSON.parse(database.prepare("SELECT overrides FROM tasks WHERE title=?").get("教学周课表验证 · 改名").overrides).includes("details"),false);
   await page.locator("#course-week").selectOption("6");await page.locator("#add-task").click();
@@ -293,7 +309,7 @@ try {
   await page.locator("#starts-at").fill(`${timetable.days[16].date}T14:00`);await page.locator("#ends-at").fill(`${timetable.days[16].date}T15:30`);
   await page.locator("#save-task").click();await page.locator("#task-dialog").waitFor({state:"hidden"});
   const addedCourse=page.locator('.timetable td[data-weekday="3"][data-start="14:00"] .course-block');await addedCourse.waitFor();assert.match(await addedCourse.textContent(),/手动补课验证/);
-  await addedCourse.locator(".course-view").click();await page.locator("#course-detail .edit-task").click();
+  await page.evaluate(()=>openTask(tasks.find(t=>t.title==="手动补课验证")));
   await page.locator("#starts-at").fill(`${timetable.days[10].date}T10:00`);await page.locator("#ends-at").fill(`${timetable.days[10].date}T11:30`);
   await page.locator("#save-task").click();await page.locator("#task-dialog").waitFor({state:"hidden"});
   await page.locator("#course-week").selectOption("5");assert.match(await page.locator('.timetable td[data-weekday="4"][data-start="10:00"]').textContent(),/手动补课验证/);
@@ -301,7 +317,7 @@ try {
   await page.evaluate(async task=>{await api(`/api/tasks/${task.id}`,"DELETE",{revision:task.revision});await refresh();},moved);
   await page.locator("#course-week").selectOption("all");
   await page.screenshot({path:"data/screenshots/courses.png",fullPage:true});
-  await category(page,"考试").click();assert.match(await page.locator(".exam-group").textContent(),/2 天后/);assert.match(await page.locator(".exam-group").textContent(),/座位 · 28/);
+  await category(page,"考试").click();assert.equal(await page.locator(".schedule-columns>.column").count(),2);assert.match(await page.locator(".exam-group").first().textContent(),/座位 · 28/);
   await page.screenshot({path:"data/screenshots/exams.png",fullPage:true});
   await phone.evaluate(()=>refresh());
   for(const section of ["课程","考试","会议","活动"]) {
@@ -310,7 +326,7 @@ try {
   }
   await phone.setViewportSize({width:390,height:844});await category(phone,"课程").click();await phone.screenshot({path:"data/screenshots/courses-mobile.png",fullPage:true});
   assert.deepEqual(errors, []);
-  console.log("PASS: Beijing monthly calendar, date selection, month/keyboard navigation, ranges, undated tasks, direct status and conflict handling, downloadable extension, unified cloud/local sync, completion order, archive filter/detail/delete, simulated board-to-extension controls, category inheritance, required title, location, detail/card todo CRUD, mouse/touch/keyboard sorting, two browser sessions, conflict draft retention, 320–768px layouts, timetable semester/week filters, recurring course grouping, course detail editing, hidden course summary, logo alignment, attachment upload/preview/download and shared links. Screenshots: data/screenshots/ (synthetic data only).");
+  console.log("PASS: Beijing monthly calendar, date selection, month/keyboard navigation, ranges, undated tasks, direct status and conflict handling, downloadable extension, unified cloud/local sync, completion order, archive filter/detail/delete, simulated board-to-extension controls, category inheritance, required title, location, detail/card todo CRUD, mouse/touch/keyboard sorting, two browser sessions, conflict draft retention, 320–768px layouts, timetable semester/week filters, recurring course grouping, course editing without status, hidden course summary, logo alignment, attachment upload/preview/download and shared links. Screenshots: data/screenshots/ (synthetic data only).");
 } finally {
   await browser?.close(); server.closeAllConnections(); await new Promise(resolve=>server.close(resolve)); database.close();
   await rm(directory, {recursive:true,force:true});

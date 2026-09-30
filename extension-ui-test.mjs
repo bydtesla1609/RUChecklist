@@ -24,8 +24,8 @@ try {
     const stored=()=>JSON.parse(localStorage.getItem("test-saved-settings") || "{}");
     globalThis.chrome={storage:{local:{get:async keys=>{
       const data=stored();return typeof keys==="string"?{[keys]:data[keys]}:data;
-    },set:async value=>localStorage.setItem("test-saved-settings",JSON.stringify({...stored(),...value}))}},
-    runtime:{sendMessage:async message=>{runtimeMessages.push(message.type);return {ok:true};},getManifest:()=>({version:"test",optional_host_permissions:["http://*.chaoxing.com/*"]})},extension:{getViews:()=>[]},permissions:{request:async value=>{globalThis.lastPermissions=value;return globalThis.allowPermission===true;}}};
+    },set:async value=>localStorage.setItem("test-saved-settings",JSON.stringify({...stored(),...value})),remove:async key=>{const data=stored();delete data[key];localStorage.setItem("test-saved-settings",JSON.stringify(data));}}},
+    runtime:{reload:()=>{globalThis.reloadCalled=true;},sendMessage:async message=>{runtimeMessages.push(message.type);return {ok:true};},getManifest:()=>({version:"test",optional_host_permissions:["http://*.chaoxing.com/*"]})},extension:{getViews:()=>[]},permissions:{request:async value=>{globalThis.lastPermissions=value;return globalThis.allowPermission===true;}}};
   });
   async function openSettings() {
     const page=await context.newPage();await page.goto(optionsURL);
@@ -36,6 +36,11 @@ try {
   let page=await openSettings();
   assert.equal(await page.locator("#url").inputValue(),"https://campus-task-board.pages.dev");
   await page.locator("#url").fill("https://example.com/my-board");
+  await page.locator("#reload-extension").click();
+  assert.equal(await page.evaluate(()=>reloadCalled),true);
+  await page.reload();await page.locator("#reload-result").filter({hasText:"当前仍为 vtest"}).waitFor();
+  await page.evaluate(()=>chrome.storage.local.remove("reopenAfterReload"));
+  await page.locator("#legacy-settings > summary").click();
   const other=await context.newPage();await other.bringToFront();await page.bringToFront();
   assert.equal(await page.locator("#url").inputValue(),"https://example.com/my-board");
   await page.locator("#token").fill("synthetic-pair-code-for-test-only");

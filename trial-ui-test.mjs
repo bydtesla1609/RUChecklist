@@ -38,14 +38,17 @@ try {
   await addWebsite("https://smartestu.cn/assignment");await addWebsite("https://course.example/homework");
   assert.equal(await page.locator("#website-list .website-row").count(),2);assert.match(await page.locator("#unsupported-links").textContent(),/尚未适配/);
   await page.evaluate(()=>{
-    window.fixtureConnected=false;window.fixtureCommands=[];
-    addEventListener("message",e=>{if(e.data?.kind!=="campus-board-command")return;fixtureCommands.push(e.data.command);if(e.data.command==="pair")fixtureConnected=true;
-      window.postMessage({kind:"campus-board-reply",id:e.data.id,result:["status","pair"].includes(e.data.command)?{version:"1.5.1",connected:fixtureConnected,enabled:true,sourceResults:{}}:{ok:true}},location.origin);
+    window.fixtureConnected=false;window.fixtureCommands=[];window.fixtureMessages=[];
+    addEventListener("message",e=>{if(e.data?.kind!=="campus-board-command")return;fixtureCommands.push(e.data.command);fixtureMessages.push(e.data);if(e.data.command==="pair")fixtureConnected=true;
+      window.postMessage({kind:"campus-board-reply",id:e.data.id,result:["status","pair"].includes(e.data.command)?{version:"1.6.0",connected:fixtureConnected,enabled:true,sourceResults:{}}:{ok:true}},location.origin);
     });
   });
   await page.locator("#collector-recheck").click();await page.locator("#collector-connect").click();await page.locator("#collector-state").filter({hasText:"已连接"}).waitFor();
-  await addWebsite("https://jw.ruc.edu.cn/Njw2017/index.html#/");await page.waitForFunction(()=>fixtureCommands.includes("scan"));assert.equal(await page.locator("#academic-scan").count(),0);
-  await page.locator("#collector-scan").click();await page.waitForFunction(()=>fixtureCommands.filter(x=>x==="scan").length>=2);
+  await addWebsite("https://jw.ruc.edu.cn/Njw2017/index.html#/");await page.waitForFunction(()=>fixtureCommands.includes("academic-scan"));assert.equal(await page.locator("#academic-scan").count(),0);
+  await page.locator("#collector-scan").click();await page.waitForFunction(()=>fixtureCommands.filter(x=>x==="scan").length>=1);
+  await page.getByRole("button",{name:"同步：SmartEstu",exact:true}).click();
+  await page.waitForFunction(()=>fixtureMessages.some(message=>message.command==="scan" && message.source==="smartestu"));
+  assert.equal(await page.locator("#sources-list .source-sync").count(),3);
   await page.locator("#sync-settings summary").click();assert.equal(await page.locator("#cloud-settings").isVisible(),true);await page.locator("#cloud-authorize").click();await page.waitForFunction(()=>fixtureCommands.includes("options"));
   await mkdir("data/screenshots",{recursive:true});await page.screenshot({path:"data/screenshots/trial-guide-desktop.png"});
   for(const width of [320,390,768]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);}

@@ -36,19 +36,21 @@
 <dialog id="task-dialog">
   <form id="task-form">
     <div class="dialog-heading"><div><h2 id="dialog-title">添加任务</h2></div><button type="button" class="icon-button close-dialog" aria-label="关闭">×</button></div>
-    <label for="task-title">标题 <span class="required">*</span></label><input id="task-title" maxlength="4000" placeholder="为这件事起个名字" required>
+    <label for="task-title">标题 <span class="required">必填</span></label><input id="task-title" maxlength="4000" placeholder="为这件事起个名字" required>
+    <div id="deadline-field"><label for="due-at">截止时间 <span class="required">必填</span></label><input id="due-at" type="datetime-local"></div>
+    <div id="range-fields" class="date-range" hidden><div><label for="starts-at">开始时间 <span class="required">必填</span></label><input id="starts-at" type="datetime-local"></div><div><label for="ends-at">结束时间 <span class="required">必填</span></label><input id="ends-at" type="datetime-local"></div></div>
+    <p class="hint">以上时间均为北京时间（UTC+8）。</p>
     <label for="task-location">地点 <span class="optional">选填</span></label><input id="task-location" maxlength="300" placeholder="例如：明德楼 302 / 图书馆 / 线上">
-    <div id="schedule-fields" hidden><label for="schedule-person" id="schedule-person-label">教师</label><input id="schedule-person" maxlength="300" placeholder="选填"><label for="schedule-seat">座位号 <span class="optional">选填</span></label><input id="schedule-seat" maxlength="300"></div><div class="field-heading"><span>待办事项 <span class="optional">选填</span></span><span class="hint">拖动 ⋮⋮ 排序</span></div>
+    <label for="task-content">内容 <span class="optional">选填</span></label><textarea id="task-content" maxlength="10000" rows="4" placeholder="记录备忘、相关安排或补充说明"></textarea>
+    <div id="schedule-fields" hidden><label for="schedule-person" id="schedule-person-label">教师 <span class="optional">选填</span></label><input id="schedule-person" maxlength="300" placeholder="选填"><label for="schedule-seat">座位号 <span class="optional">选填</span></label><input id="schedule-seat" maxlength="300"></div><div class="field-heading"><span>待办事项 <span class="optional">选填</span></span><span class="hint">拖动 ⋮⋮ 排序</span></div>
     <div id="task-todos"></div>
     <div class="resource-heading"><span>附件 <span class="optional">选填</span></span><span id="file-limit-hint" class="hint">单个文件 ≤ 10 MB</span></div>
     <div class="resource-editor"><div id="task-attachments" class="resources"></div><label class="upload-control" for="attachment-input">添加文件<input id="attachment-input" type="file" multiple></label><p id="upload-state" class="upload-state" role="status"></p><p class="hint">支持 Word、PDF、图片等。附件随任务保存，最多 20 个。</p></div>
     <div class="resource-heading"><span>链接 <span class="optional">选填</span></span><button id="add-link" type="button" class="text-button">＋ 添加链接</button></div>
     <div id="task-links" class="resource-editor"></div>
     <p id="task-source" class="source-original" hidden></p>
-    <div id="deadline-field"><label for="due-at">截止时间</label><input id="due-at" type="datetime-local"></div>
-    <div id="range-fields" class="date-range" hidden><div><label for="starts-at">开始时间</label><input id="starts-at" type="datetime-local"></div><div><label for="ends-at">结束时间</label><input id="ends-at" type="datetime-local"></div></div>
-    <p class="hint">以上时间均为北京时间（UTC+8）。</p>
-    <p id="task-completed" class="hint" hidden></p><label for="status">进度</label><select id="status"><option value="todo">待开始</option><option value="doing">进行中</option><option value="done">已完成</option></select>
+    <p id="task-completed" class="hint" hidden></p><div id="homework-status"><label for="status">进度</label><select id="status"><option value="todo">待开始</option><option value="doing">进行中</option><option value="done">已完成</option></select></div>
+    <label id="done-field" class="completion-control" hidden><input id="task-done" type="checkbox">已完成</label>
     <p id="task-error" class="error" role="alert"></p>
     <div class="dialog-actions"><button type="button" class="secondary close-dialog">取消</button><button id="save-task" class="primary" type="submit">保存任务</button></div>
   </form>
@@ -57,7 +59,11 @@
   <div class="dialog-heading"><div><h2>连接你的网站</h2></div><button class="icon-button close-dialog" aria-label="关闭">×</button></div>
   <p class="muted guide-intro">首次在电脑浏览器中完成下面 4 步。之后登录同一个账号，手机也能看到同步的任务。</p>
   <details id="guide-install" class="guide-step" open><summary><span class="step-number">1</span><span>安装同步扩展<small id="install-state">只需安装一次</small></span></summary>
-    <div id="collector-install" class="step-body"><ol><li><a class="secondary extension-download" href="/extension.zip" download="RUChecklist-extension.zip">下载扩展安装包</a>，在电脑上右键选择“全部解压缩”。</li><li>从浏览器菜单打开“扩展程序 → 管理扩展”。<button id="copy-extension-page" class="text-button" type="button">复制管理页地址</button></li><li>打开“开发人员模式”，点“加载解压缩的扩展”，选择解压后的 <strong>extension</strong> 文件夹。</li><li>回到这个网页，点击下方按钮。更新扩展时，在管理页点一次“重新加载”。</li></ol><button id="collector-recheck" class="secondary" type="button">我已安装，重新检测</button></div>
+    <div id="collector-install" class="step-body"><p>当前下载版本：<strong>v1.6.0</strong>。重新加载只读取本机文件，不会下载新版本。</p>
+    <a class="secondary extension-download" href="/extension.zip?v=1.6.0" download="RUChecklist-extension.zip">下载扩展 v1.6.0</a>
+    <h4>首次安装</h4><ol><li>下载后右键选择“全部解压缩”，记住其中的 <strong>extension</strong> 文件夹位置。</li><li>从浏览器菜单打开“扩展程序 → 管理扩展”。<button id="copy-extension-page" class="text-button" type="button">复制管理页地址</button></li><li>开启“开发人员模式”，点“加载解压缩的扩展”，选择该 <strong>extension</strong> 文件夹。</li></ol>
+    <h4>已有扩展：更新并重新加载</h4><ol><li>下载上方新版并解压。将新版 <strong>extension 文件夹内的全部文件</strong>复制到最初安装的 extension 文件夹，选择“替换目标中的文件”。仅下载 ZIP 或解压到另一个文件夹不会更新已有扩展。</li><li>打开扩展的独立设置页，点击<strong>“重新加载此扩展”</strong>；也可在管理扩展页面的 RUChecklist 卡片上点击重新加载图标。</li><li>设置页重新打开后，确认顶部为 <strong>v1.6.0</strong>。如果仍是旧版本，检查第 1 步替换的是否为原安装文件夹；若找不到原文件夹，在管理页移除旧扩展，再按“首次安装”加载新版并重新连接账号。</li><li>刷新看板网页，点击下方“重新检测”。检测显示 v1.6.0 后即可继续同步。</li></ol>
+    <button id="collector-recheck" class="secondary" type="button">我已安装 / 更新，重新检测</button></div>
   </details>
   <section class="guide-step"><h3><span class="step-number">2</span>连接当前账号</h3><div class="step-body"><p id="collector-state" role="status">正在检查扩展…</p><div id="collector-controls" hidden><button id="collector-connect" class="primary">连接此看板</button></div><p class="hint">不用复制配对码。换账号或换看板时，请重新连接。</p></div></section>
   <section class="guide-step" id="website-setup"><h3><span class="step-number">3</span>添加网站</h3><div class="step-body"><p class="hint">登录你的网站，打开需要同步的页面，将完整网址粘贴到下面。作业、微人大课表或考试查询页都可以。</p><div id="website-list"></div><form id="source-links-form" hidden><label for="source-url">网站页面链接</label><div class="website-input"><input id="source-url" type="url" required placeholder="https://…" spellcheck="false" autocomplete="off"><button class="secondary" id="save-source-link" type="submit">确认</button><button class="text-button" id="cancel-source-link" type="button">取消</button></div></form><button id="add-source-link" class="text-button" type="button">＋ 添加网站</button><p id="source-links-result" class="hint" role="status"></p><details class="supported-sites"><summary>支持哪些网站？</summary><p class="hint">目前支持 SmartEstu、课堂派、学习通，以及微人大教务课表与考试。其他网站会保留入口并提示尚未适配。</p></details></div></section>
@@ -80,10 +86,6 @@
 <dialog id="archive-detail-dialog">
   <div class="dialog-heading"><h2>任务详情</h2><button class="icon-button close-dialog" aria-label="关闭详情">×</button></div>
   <div id="archive-detail"></div>
-</dialog>
-<dialog id="course-dialog">
-  <div class="dialog-heading"><h2>课程详情</h2><button class="icon-button close-dialog" aria-label="关闭课程详情">×</button></div>
-  <label for="course-occurrence">查看课次</label><select id="course-occurrence"></select><div id="course-detail"></div>
 </dialog>
 <dialog id="delete-dialog"><h2>删除这项任务？</h2><p>从教学网站导入的任务，删除后不会再次自动加入。</p><div class="dialog-actions"><button class="secondary close-dialog">取消</button><button id="confirm-delete" class="danger">删除任务</button></div></dialog>
 <dialog id="account-dialog"><div class="dialog-heading"><h2>账号与恢复码</h2><button type="button" class="icon-button close-dialog" aria-label="关闭账号设置">×</button></div><p id="account-name"></p><p class="hint">恢复码相当于备用钥匙，请保存在自己的密码管理器或安全位置。生成新码后，旧码立即失效。</p><form id="recovery-form"><label for="account-password">当前密码</label><input id="account-password" type="password" autocomplete="current-password" required><button class="secondary" type="submit">重新生成恢复码</button><p id="account-error" class="error" role="alert"></p></form></dialog>
