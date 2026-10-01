@@ -186,14 +186,14 @@ try {
     return (await response.json()).id;
   });
   database.prepare("UPDATE tasks SET completed_at=?,archived_at='2026-09-01T00:00:00Z' WHERE id=?").run(new Date(Date.now()-8*86400000).toISOString(),archiveId);
-  await page.evaluate(() => refresh());await page.locator("#archive-button").click();
+  await page.evaluate(() => refresh());await accountEntry(page,'archive-button');
   await page.getByRole("button",{name:"查看归档：归档检查 · 已提交报告",exact:true}).click();
   await page.locator("#archive-detail-dialog").waitFor({state:"visible"});
   assert.ok(await page.locator("#archive-detail").getByText("地点 · 实验室",{exact:true}).isVisible());
   assert.ok(await page.locator("#archive-detail").getByText("☑ 最终检查",{exact:true}).isVisible());
-  await mkdir("data/screenshots",{recursive:true});await page.screenshot({path:"data/screenshots/archive-detail.png"});
+  await mkdir("data/screenshots",{recursive:true});await page.screenshot({animations:"disabled",path:"data/screenshots/archive-detail.png"});
   await page.getByRole("button",{name:"关闭详情",exact:true}).click();
-  await page.screenshot({path:"data/screenshots/archive.png"});
+  await page.screenshot({animations:"disabled",path:"data/screenshots/archive.png"});
   await page.locator("#archive-categories button").filter({hasText:"活动"}).click();
   await page.locator("#archive-list .archive-empty").waitFor();
   await page.locator("#archive-categories button").filter({hasText:"作业"}).click();
@@ -253,11 +253,11 @@ try {
   assert.equal(await homework.locator(".task-status").inputValue(),"todo");
   assert.match(await page.locator("#toast").textContent(),/其他设备/);
   await mkdir("data/screenshots", {recursive: true});
-  await page.screenshot({path:"data/screenshots/desktop.png",fullPage:true});
+  await page.screenshot({animations:"disabled",path:"data/screenshots/desktop.png",fullPage:true});
   await phone.evaluate(() => refresh()); await category(phone, "总览").click();
   await phone.evaluate(()=>{calendarMonth="2026-10";selectedDay="2026-10-02";renderCalendar();scrollTo(0,0);});
-  await phone.screenshot({path:"data/screenshots/mobile.png",fullPage:true});
-  await phone.screenshot({path:"data/screenshots/mobile-top.png"});
+  await phone.screenshot({animations:"disabled",path:"data/screenshots/mobile.png",fullPage:true});
+  await phone.screenshot({animations:"disabled",path:"data/screenshots/mobile-top.png"});
   for(const width of [320,375,430,768]) {
     await phone.setViewportSize({width,height:844});assert.equal(await phone.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`overflow at ${width}px`);
     assert.equal(await phone.locator(".day-task").first().evaluate(node=>getComputedStyle(node).textOverflow),"ellipsis");
@@ -287,11 +287,11 @@ try {
   await page.locator("#collector-enabled").check();await page.locator("#collector-scan").click();await page.waitForFunction(()=>!syncing);assert.equal(cloudRuns,2);assert.equal(await page.evaluate(()=>window.testScanCount),2);
   assert.match(await page.locator("#sources-list").textContent(),/已同步/);
 
-  await page.screenshot({path:"data/screenshots/sources.png"});
+  await page.screenshot({animations:"disabled",path:"data/screenshots/sources.png"});
   await page.locator("#sources-dialog .close-dialog").click();
   await category(page, "活动").click(); await page.locator("#add-task").click();
   assert.equal(await page.locator("#dialog-title").textContent(), "添加活动");
-  await page.screenshot({path:"data/screenshots/form.png"});
+  await page.screenshot({animations:"disabled",path:"data/screenshots/form.png"});
   await page.locator("#task-dialog .close-dialog").first().click();
   const scheduleDate=await page.evaluate(()=>localInput(new Date()).slice(0,10));
   const weekStart=await page.evaluate(day=>monday(day),scheduleDate);
@@ -343,18 +343,23 @@ try {
   const moved=database.prepare("SELECT id,revision,details FROM tasks WHERE title=?").get("手动补课验证");assert.equal(JSON.parse(moved.details).week,"5");
   await page.evaluate(async task=>{await api(`/api/tasks/${task.id}`,"DELETE",{revision:task.revision});await refresh();},moved);
   await page.locator("#course-week").selectOption("all");
-  await page.screenshot({path:"data/screenshots/courses.png",fullPage:true});
+  await page.screenshot({animations:"disabled",path:"data/screenshots/courses.png",fullPage:true});
   await category(page,"考试").click();assert.equal(await page.locator(".schedule-columns>.column").count(),2);assert.match(await page.locator(".exam-group").first().textContent(),/座位 · 28/);
-  await page.screenshot({path:"data/screenshots/exams.png",fullPage:true});
+  await page.screenshot({animations:"disabled",path:"data/screenshots/exams.png",fullPage:true});
   await phone.evaluate(()=>refresh());
   for(const section of ["课程","考试","会议","活动"]) {
     await category(phone,section).click();
     for(const width of [320,375,430,768]) {await phone.setViewportSize({width,height:844});assert.equal(await phone.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`${section} overflow at ${width}px`);}
   }
-  await phone.setViewportSize({width:390,height:844});await category(phone,"课程").click();await phone.screenshot({path:"data/screenshots/courses-mobile.png",fullPage:true});
+  await phone.setViewportSize({width:390,height:844});await category(phone,"课程").click();await phone.screenshot({animations:"disabled",path:"data/screenshots/courses-mobile.png",fullPage:true});
   assert.deepEqual(errors, []);
   console.log("PASS: login-expiry popup on opening, one combined startup reminder, shared relogin links, verified recovery, Beijing monthly calendar, date selection, month/keyboard navigation, ranges, undated tasks, direct status and conflict handling, downloadable extension, unified cloud/local sync, completion order, archive filter/detail/delete, simulated board-to-extension controls, category inheritance, required title, location, detail/card todo CRUD, mouse/touch/keyboard sorting, two browser sessions, conflict draft retention, 320–768px layouts, timetable semester/week filters, recurring course grouping, course editing without status, hidden course summary, logo alignment, attachment upload/preview/download and shared links. Screenshots: data/screenshots/ (synthetic data only).");
 } finally {
   await browser?.close(); server.closeAllConnections(); await new Promise(resolve=>server.close(resolve)); database.close();
   await rm(directory, {recursive:true,force:true});
+}
+
+async function accountEntry(page,id){
+  if(!await page.locator('#user-menu').isVisible())await page.locator('#user-menu-toggle').click();
+  await page.locator('#'+id).click();
 }

@@ -4,11 +4,11 @@ import {mkdtemp,rm,readFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join,dirname,resolve,basename} from "node:path";
 import vm from "node:vm";
-import worker from "./worker.mjs";
+import worker,{autoArchive} from "./worker.mjs";
 import {createEnvironment} from "./local.mjs";
 import "./extension/parsers.js";
 
-test("completion transitions, unchanged imports, manual archive and protected details",async()=>{
+test("completion transitions, unchanged imports, automatic/manual archive and protected details",async()=>{
   const root=resolve(tmpdir()),dir=await mkdtemp(join(root,"campus-completion-"));
   const {env,database}=await createEnvironment(dir,"completion-test-only");let cookie="";
   async function api(path,method="GET",value,headers={}) {
@@ -42,7 +42,15 @@ test("completion transitions, unchanged imports, manual archive and protected de
     assert.equal((await upload()).data.changed,0);assert.equal((await get()).status,"done");
     const archivedTime=new Date(Date.now()-8*86400000).toISOString();
     database.prepare("UPDATE tasks SET completed_at=? WHERE id=?").run(archivedTime,id);
-    assert.equal((await api("/api/board")).data.tasks.length,1,"old completions stay visible until manually archived");
+    assert.equal((await api("/api/board")).data.tasks.length,0,"completed work automatically archives after seven days");
+    current=await get();const autoRevision=current.revision;
+    await autoArchive(env.DB);assert.equal((await get()).revision,autoRevision,"automatic archive is idempotent");
+    await api(`/api/tasks/${id}/archive`,"PATCH",{revision:autoRevision,archived:false});
+    assert.equal((await api("/api/board")).data.tasks.length,1,"restoring an old completion must not immediately archive it again");
+    assert.equal((await get()).completed_at,archivedTime,"restore preserves the completion time");
+    await autoArchive(env.DB,Date.now()+6*86400000);assert.equal((await get()).archived_at,null);
+    await autoArchive(env.DB,Date.now()+8*86400000);assert.ok((await get()).archived_at);
+    current=await get();await api(`/api/tasks/${id}/archive`,"PATCH",{revision:current.revision,archived:false});
     current=await get();await api(`/api/tasks/${id}/archive`,"PATCH",{revision:current.revision,archived:true});
     assert.equal((await api("/api/board")).data.tasks.length,0);
     const archive=(await api("/api/archive?category=作业")).data;
@@ -60,6 +68,10 @@ test("completion transitions, unchanged imports, manual archive and protected de
     assert.ok((await get()).completed_at>archivedTime);
     current=await get();await api(`/api/tasks/${id}`,"DELETE",{revision:current.revision});
     task.status="done";assert.equal((await upload()).data.changed,0);assert.equal((await api(`/api/tasks/${id}`)).status,404);
+
+    const course=(await api("/api/tasks","POST",{category:"课程",title:"课程不是任务",starts_at:"2026-01-01T00:00:00Z",ends_at:"2026-01-01T01:00:00Z",status:"done"})).data;
+    database.prepare("UPDATE tasks SET completed_at='2026-01-01T00:00:00Z' WHERE id=?").run(course.id);
+    await autoArchive(env.DB);assert.equal((await api(`/api/tasks/${course.id}`)).data.archived_at,null,"courses never automatically archive");
 
     // Exercise the extension's incremental cache against the real import API.
     let saved={enabled:true,boardURL:"https://campus-task-board.pages.dev",token};const requests=[];

@@ -5,7 +5,7 @@ function resetMessages(){
   messageReady=false;startupMessageShown=false;releaseState=announcementState=noticeSnapshot=null;
   chatSequence++;chatTarget=null;chatMessages=[];chatMore=false;chatPending=null;chatBusy=false;communityUnread=0;
   $("chat-input").value="";$("chat-bubbles").replaceChildren();$("chat-threads").replaceChildren();$("messages-content").replaceChildren();
-  $("feedback-unread").hidden=true;$("chat-send").disabled=false;$("chat-error").textContent="";
+  $("feedback-unread").hidden=true;$("user-unread").hidden=true;$("chat-send").disabled=false;$("chat-error").textContent="";
 }
 async function archiveTask(task,archived){
   if(hasDraft()){notice("请先保存或取消待办草稿");return;}
@@ -61,7 +61,7 @@ $("messages-read").onclick=async()=>{
 };
 async function refreshCommunityUnread(){
   if(!trialMode || $("workspace").hidden)return;const session=syncSession;
-  try{const data=await api("/api/feedback/unread");if(session!==syncSession)return;communityUnread=data.total;$("feedback-unread").textContent=data.total>99?"99+":String(data.total);$("feedback-unread").hidden=!data.total;maybeMessageBoard();}catch{}
+  try{const data=await api("/api/feedback/unread");if(session!==syncSession)return;communityUnread=data.total;$("feedback-unread").textContent=data.total>99?"99+":String(data.total);$("feedback-unread").hidden=!data.total;$("user-unread").hidden=!data.total;maybeMessageBoard();}catch{}
 }
 async function openChat(){
   if(!trialMode)return;$("chat-error").textContent="";$("feedback-dialog").dataset.active=isAdmin?"false":"true";$("feedback-dialog").showModal();

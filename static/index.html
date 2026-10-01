@@ -21,18 +21,32 @@
 </section>
 <div id="workspace" class="workspace" hidden>
   <aside class="sidebar">
-    <a class="brand" href="/" aria-label="RUChecklist首页"><span class="brand-icon" aria-hidden="true"><img src="/static/icon.svg" alt="" width="56" height="56"></span><span class="wordmark"><b>RU</b>Checklist</span></a>
-    <p class="nav-heading">我的任务</p><nav id="categories" aria-label="任务分类"></nav>
-    <div class="sidebar-bottom"><button id="messages-button" class="nav-button">♧ <span>消息看板</span></button><button id="feedback-button" class="nav-button" hidden>◇ <span>与管理员反馈</span><small id="feedback-unread" hidden></small></button><button id="demo-button" class="nav-button" aria-label="使用演示">▷ <span>使用演示</span></button><button id="archive-button" class="nav-button" aria-label="归档处">▤ <span>归档处</span></button><button id="sources-button" class="nav-button">↻ <span>来源与同步</span></button><button id="account-button" class="nav-button" hidden>⚙ <span>账号与恢复码</span></button><button id="logout" class="nav-button">↗ <span>退出登录</span></button></div>
+    <a class="brand" href="/" aria-label="RUChecklist首页"><span class="brand-icon" aria-hidden="true"><img src="/static/icon.svg" alt="" width="56" height="56"></span><span class="brand-copy"><span class="wordmark"><b>RU</b>Checklist</span><small id="app-version">v2.15.0</small></span></a>
+    <p class="nav-heading">我的安排</p><nav id="categories" aria-label="校园板块"></nav>
+    <div class="sidebar-bottom">
+      <button id="demo-button" class="nav-button" aria-label="使用演示"><span>使用演示</span></button>
+      <button id="sources-button" class="nav-button"><span>来源与同步</span></button>
+      <button id="user-menu-toggle" class="user-card" popovertarget="user-menu" aria-expanded="false" aria-controls="user-menu" aria-label="打开账户菜单">
+        <span id="user-avatar" class="user-avatar" aria-hidden="true">RU</span><span class="user-identity"><strong id="user-card-name">我的账户</strong><small id="user-card-role">个人空间</small></span><span id="user-unread" class="user-unread" hidden aria-label="有未读消息"></span><span class="user-chevron" aria-hidden="true">⌃</span>
+      </button>
+    </div>
   </aside>
   <main>
     <section class="heading"><div><h1 id="view-title">总览</h1></div><div class="add-control"><button id="add-task" class="primary" aria-expanded="false"><span aria-hidden="true">＋</span> 添加任务</button><div id="add-menu" class="add-menu" hidden aria-label="选择任务板块"></div></div></section>
-    <section class="summary" aria-label="任务概况"><div><span>待完成</span><strong id="count-open">0</strong><small>按截止 / 结束时间从近到远</small><span class="stat-art" aria-hidden="true">◌</span></div><div><span>未来 7 天到期</span><strong id="count-soon">0</strong><small>按截止 / 结束时间从近到远</small><span class="stat-art" aria-hidden="true">↗</span></div><div><span>已逾期</span><strong id="count-overdue">0</strong><small>已过截止 / 结束时间，且尚未完成</small><span class="stat-art" aria-hidden="true">⌁</span></div><div><span>已完成</span><strong id="count-done">0</strong><small>按完成时间倒序，可手动归档</small><span class="stat-art" aria-hidden="true">✓</span></div></section>
+    <section class="summary" aria-label="任务概况"><div><span>待完成</span><strong id="count-open">0</strong><small>按截止 / 结束时间从近到远</small><span class="stat-art" aria-hidden="true">◌</span></div><div><span>未来 7 天到期</span><strong id="count-soon">0</strong><small>按截止 / 结束时间从近到远</small><span class="stat-art" aria-hidden="true">↗</span></div><div><span>已逾期</span><strong id="count-overdue">0</strong><small>已过截止 / 结束时间，且尚未完成</small><span class="stat-art" aria-hidden="true">⌁</span></div><div><span>已完成</span><strong id="count-done">0</strong><small>按完成时间倒序 · 满 7 天自动归档</small><span class="stat-art" aria-hidden="true">✓</span></div></section>
     <div id="board-caption" class="board-caption"><h2>任务看板</h2></div>
     <div id="board" class="board" aria-live="polite"></div>
     <p id="load-error" class="error" role="alert"></p>
   </main>
 </div>
+<nav id="user-menu" class="user-menu" popover aria-label="账户菜单">
+  <div class="user-menu-heading"><strong id="user-menu-name">我的账户</strong><small id="user-menu-role">个人空间</small></div>
+  <button id="messages-button" class="user-menu-item"><span>消息看板</span></button>
+  <button id="feedback-button" class="user-menu-item" hidden><span>与管理员反馈</span><small id="feedback-unread" hidden></small></button>
+  <button id="archive-button" class="user-menu-item" aria-label="归档处"><span>归档处</span></button>
+  <button id="account-button" class="user-menu-item" hidden><span>账号与恢复码</span></button>
+  <div class="user-menu-divider"></div><button id="logout" class="user-menu-item logout-item"><span>退出登录</span></button>
+</nav>
 <dialog id="task-dialog">
   <form id="task-form">
     <div class="dialog-heading"><div><h2 id="dialog-title">添加任务</h2></div><button type="button" class="icon-button close-dialog" aria-label="关闭">×</button></div>
@@ -99,7 +113,7 @@
 </dialog>
 <dialog id="archive-dialog">
   <div class="dialog-heading"><div><h2>归档处</h2></div><button class="icon-button close-dialog" aria-label="关闭归档">×</button></div>
-  <p class="muted">手动归档的任务保留原始时间和详细信息，可随时恢复到看板。</p>
+  <p class="muted">支持手动归档，已完成任务满 7 天自动归档，课程不自动归档。恢复后至少保留 7 天，原始时间和详情不变。</p>
   <nav id="archive-categories" class="archive-categories" aria-label="归档分类"></nav>
   <div id="archive-list"></div><p id="archive-error" class="error" role="alert"></p>
   <button id="archive-more" class="secondary" hidden>加载更多</button>

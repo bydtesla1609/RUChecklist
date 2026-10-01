@@ -40,7 +40,7 @@ async function api(path, method = "GET", payload, timeout = 15000) {
   return data;
 }
 function showLogin() {
-  refreshSequence++;
+  refreshSequence++;closeUserMenu();
   if(typeof resetMessages==="function")resetMessages();
   syncSession++;lastCloudCheck=0;loginRemindersSeen.clear();
   $("expired-sites").replaceChildren();
@@ -223,19 +223,54 @@ function navigationIcon(category) {
     "课程":"M3 5c3-1 6-1 9 1 3-2 6-2 9-1v14c-3-1-6-1-9 1-3-2-6-2-9-1z M12 6v14",
     "考试":"M8 3h8 M12 3v3 M18 6l2-2 M12 10v5l3 2 M21 15a9 9 0 1 1-18 0 9 9 0 0 1 18 0",
     "活动":"m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z",
-    "会议":"M15 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0 M5 21v-2a7 7 0 0 1 14 0v2 M19 7a3 3 0 0 1 0 6 M22 20v-2a5 5 0 0 0-3-4"
+    "会议":"M15 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0 M5 21v-2a7 7 0 0 1 14 0v2 M19 7a3 3 0 0 1 0 6 M22 20v-2a5 5 0 0 0-3-4",
+    "消息":"M18 8a6 6 0 0 0-12 0v5l-2 4h16l-2-4z M10 21h4",
+    "反馈":"M4 4h16v12H9l-5 4z M8 8h8 M8 12h5",
+    "归档":"M4 8h16v13H4z M3 3h18v5H3z M9 12h6",
+    "账户":"M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M4 21a8 8 0 0 1 16 0",
+    "退出":"M9 3H4v18h5 M10 12h11 M17 8l4 4-4 4",
+    "演示":"M9 7l8 5-8 5z M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0",
+    "同步":"M20 10a8 8 0 0 0-14-4L3 9 M3 4v5h5 M4 14a8 8 0 0 0 14 4l3-3 M21 20v-5h-5"
   };
   const svg=document.createElementNS("http://www.w3.org/2000/svg","svg"),path=document.createElementNS(svg.namespaceURI,"path");
   svg.setAttribute("viewBox","0 0 24 24");svg.setAttribute("aria-hidden","true");svg.setAttribute("class",`nav-icon cat-${CATEGORIES.indexOf(category)}`);
   path.setAttribute("d",paths[category]);svg.append(path);return svg;
 }
+function animateView() {
+  if(matchMedia("(prefers-reduced-motion: reduce)").matches)return;
+  [document.querySelector(".heading"),document.querySelector(".summary"),$("board")].filter(node=>!node.hidden).forEach((node,index)=>{
+    node.getAnimations().forEach(animation=>animation.cancel());
+    node.animate([{opacity:0,transform:"translateY(10px)"},{opacity:1,transform:"translateY(0)"}],{duration:260,delay:index*35,easing:"cubic-bezier(.2,.7,.25,1)",fill:"backwards"});
+  });
+}
+function updateAccountCard() {
+  const name=accountName || "我的账户",role=trialMode?(isAdmin?"管理员":"个人账户"):"个人空间";
+  $("user-card-name").textContent=$("user-menu-name").textContent=name;
+  $("user-card-role").textContent=$("user-menu-role").textContent=role;
+  $("user-avatar").textContent=accountName?Array.from(accountName).slice(0,2).join("").toUpperCase():"RU";
+  $("user-menu-toggle").setAttribute("aria-label",`${name}，打开账户菜单`);
+}
+function closeUserMenu(){if($("user-menu").matches(":popover-open"))$("user-menu").hidePopover();}
+function positionUserMenu(){
+  const menu=$("user-menu");if(!menu.matches(":popover-open"))return;
+  const rect=$("user-menu-toggle").getBoundingClientRect(),gap=10,pad=12,height=menu.offsetHeight;
+  const top=rect.top>=height+gap+pad?rect.top-height-gap:Math.min(rect.bottom+gap,innerHeight-height-pad);
+  menu.style.left=`${Math.max(pad,Math.min(rect.left,innerWidth-menu.offsetWidth-pad))}px`;
+  menu.style.top=`${Math.max(pad,top)}px`;
+}
+$("user-menu").addEventListener("beforetoggle",event=>{
+  $("user-menu-toggle").setAttribute("aria-expanded",String(event.newState==="open"));if(event.newState==="open")requestAnimationFrame(positionUserMenu);
+});
+$("user-menu").addEventListener("click",event=>{if(event.target.closest("button"))closeUserMenu();});
+window.addEventListener("resize",positionUserMenu);document.addEventListener("scroll",positionUserMenu,true);
+for(const [id,icon] of [["demo-button","演示"],["sources-button","同步"],["messages-button","消息"],["feedback-button","反馈"],["archive-button","归档"],["account-button","账户"],["logout","退出"]])$(id).prepend(navigationIcon(icon));
 function renderNavigation() {
   $("categories").replaceChildren(...["全部", ...CATEGORIES].map(category => {
     const button = element("button", null, "nav-button" + (categoryFilter === category ? " active" : ""));
     button.setAttribute("aria-pressed", String(categoryFilter === category));
     button.append(navigationIcon(category), element("span", category === "全部" ? "总览" : category),
-      element("span", String(tasks.filter(t => t.status !== "done" && (category === "全部" || t.category === category)).length), "count"));
-    button.onclick = () => { if (hasDraft()) { notice("请先保存或取消正在编辑的待办事项"); return; } categoryFilter = category; closeAddMenu(); render(); };
+      element("span", String(tasks.filter(t => category==="课程"?t.category==="课程":t.category!=="课程" && t.status !== "done" && (category === "全部" || t.category === category)).length), "count"));
+    button.onclick = () => { if (hasDraft()) { notice("请先保存或取消正在编辑的待办事项"); return; } const changed=categoryFilter!==category;categoryFilter = category; closeAddMenu(); render();if(changed)animateView(); };
     return button;
   }));
 }
@@ -334,16 +369,16 @@ function render() {
   const visible = tasks.filter(t => categoryFilter === "全部" || categoryFilter === t.category);
   $("view-title").textContent = categoryFilter === "全部" ? "总览" : categoryFilter;
   $("add-task").textContent = categoryFilter === "全部" ? "＋ 添加任务" : `＋ 添加${categoryFilter}`;
-  const open = visible.filter(t => t.status !== "done");
+  const taskItems=visible.filter(t=>t.category!=="课程"),open = taskItems.filter(t => t.status !== "done");
   $("count-open").textContent = open.length;
-  $("count-done").textContent = visible.length - open.length;
+  $("count-done").textContent = taskItems.length - open.length;
   const current = Date.now();
   $("count-soon").textContent = open.filter(t => deadline(t) && new Date(deadline(t)).getTime() >= current && new Date(deadline(t)).getTime() <= current + 7 * 86400000).length;
   $("count-overdue").textContent = open.filter(t => deadline(t) && new Date(deadline(t)).getTime() < current).length;
   $("board").className="board"+(categoryFilter==="全部"?" calendar-board":categoryFilter!=="作业"?" schedule-board":"");
   document.querySelectorAll(".summary>div").forEach((node,index)=>{
     node.querySelector("span").textContent=["待完成","未来 7 天到期","已逾期","已完成"][index];
-    node.querySelector("small").textContent=["按截止 / 结束时间从近到远","按截止 / 结束时间从近到远","已过截止 / 结束时间，且尚未完成","按完成时间倒序，可手动归档"][index];
+    node.querySelector("small").textContent=["按截止 / 结束时间从近到远","按截止 / 结束时间从近到远","已过截止 / 结束时间，且尚未完成","按完成时间倒序 · 满 7 天自动归档"][index];
   });
   $("board-caption").hidden=categoryFilter!=="作业";
   if(categoryFilter==="全部") {renderCalendar();renderSources();return;}
@@ -453,7 +488,7 @@ function renderSchedule(visible) {
   const pending=sorted.filter(t=>t.status!=="done"),done=sorted.filter(t=>t.status==="done").sort((a,b)=>(b.completed_at || "").localeCompare(a.completed_at || ""));
   scheduleStats(["未完成","未来 7 天","今天","已完成"],
     [pending.length,pending.filter(t=>Date.parse(t.starts_at)>=now && Date.parse(t.starts_at)<=now+7*86400000).length,pending.filter(t=>onCalendarDay(t,today)).length,done.length],
-    ["按开始时间从近到远","未来一周开始的安排","全部时间均为北京时间","按完成时间倒序，可手动归档"]);
+    ["按开始时间从近到远","未来一周开始的安排","全部时间均为北京时间","按完成时间倒序 · 满 7 天自动归档"]);
   const columns=element("div",null,"schedule-columns");
   for(const [label,items,state] of [["未完成",pending,"todo"],["已完成",done,"done"]]) {
     const column=element("section",null,`column ${state}`),heading=element("h2",label);
@@ -502,7 +537,7 @@ function renderCalendar() {
     const date=new Date(Date.UTC(year,month-1,1-offset+i)),key=date.toISOString().slice(0,10);
     const matching=tasks.filter(task=>onCalendarDay(task,key)).sort((a,b)=>(deadline(a)||"9999").localeCompare(deadline(b)||"9999") || a.id.localeCompare(b.id));
     const day=element("button",null,"calendar-day"+(key.slice(0,7)!==calendarMonth?" outside":"")+(key===selectedDay?" selected":""));
-    day.dataset.date=key;day.setAttribute("aria-label",`${key}，${matching.length} 项任务`);
+    day.dataset.date=key;day.setAttribute("aria-label",`${key}，${matching.length} 项安排`);
     day.setAttribute("aria-pressed",String(key===selectedDay));day.setAttribute("aria-controls","day-list");
     if(key===todayKey) day.setAttribute("aria-current","date");
     day.append(element("span",String(date.getUTCDate()),"day-number"));
@@ -527,8 +562,8 @@ function renderCalendar() {
   const matching=tasks.filter(task=>onCalendarDay(task,selectedDay)).sort((a,b)=>a.status==="done" && b.status==="done"
     ? (b.completed_at||b.updated_at).localeCompare(a.completed_at||a.updated_at)
     : (a.status==="done")-(b.status==="done") || (deadline(a)||"9999").localeCompare(deadline(b)||"9999"));
-  agenda.append(element("h2",`${selectedDay ? `${Number(selectedDay.slice(5,7))} 月 ${Number(selectedDay.slice(8))} 日` : "未定日期"} · ${matching.length} 项任务`));
-  if(matching.length)list.append(...matching.map(card));else list.append(element("p","这一天没有任务。","day-empty"));
+  agenda.append(element("h2",`${selectedDay ? `${Number(selectedDay.slice(5,7))} 月 ${Number(selectedDay.slice(8))} 日` : "未定日期"} · ${matching.length} 项安排`));
+  if(matching.length)list.append(...matching.map(card));else list.append(element("p","这一天没有安排。","day-empty"));
   agenda.append(list);root.replaceChildren(calendar,agenda);
 }
 function renderArchive() {
@@ -888,7 +923,7 @@ const demoSteps=[
   {target:"#sources-button",title:"网站配置在这里",text:"点击侧栏的“来源与同步”，安装并连接同步扩展，就可以接入自己的校园网站。下一步带你查看配置位置。"},
   {target:"#add-source-link",sources:true,title:"一个网站，一条配置",text:"点击“添加网站”，粘贴需要同步的页面网址，再点确认。已适配平台直接同步；其他网站先授权读取，在原网页确认预览，识别不准时点选字段。每个平台旁的“同步”只读取该来源，“一键同步”读取全部来源。"},
   {target:"#cloud-authorize",sources:true,title:"云端同步：电脑关机也能更新",text:"在“来源与同步”第 4 步前往扩展授权，勾选同意后启用。登录凭据会加密保存在当前账号下，可随时关闭并删除。授权后回到第 5 步点击“一键同步”检查结果。微人大课表、考试、YOJ 及通用识别网站仍需电脑浏览器运行。"},
-  {target:"#archive-button",title:"手动归档与消息",text:"点击任务卡片上的“归档”即可整理已处理的安排；归档后可查看、恢复或删除。消息看板集中展示提醒，侧栏可以联系管理员或查看公告。"}
+  {target:"#user-menu-toggle",title:"账户菜单：消息与归档",text:"点击头像和用户名，打开消息看板、归档处、反馈与账号设置。可以随时手动归档；已完成任务满 7 天也会自动归档，课程除外。归档后可查看、恢复或删除。"}
 ];
 let demoIndex=0,demoOriginal=null;
 const demoKey=()=>`ruchecklist-demo:${boardAccount}`;
@@ -948,6 +983,7 @@ function setAuthMode(mode) {
 }
 function configureAccount(data) {
   trialMode=!!data.trial;isAdmin=!!data.admin;boardAccount=data.account || (trialMode?"":"personal");accountName=data.username || accountName;registrationOpen=!!data.registration_open;
+  updateAccountCard();
   $("trial-auth").hidden=!trialMode;$("auth-recover").hidden=!trialMode;$("account-button").hidden=!trialMode;
   $("username").required=trialMode;$("password").minLength=trialMode?6:0;
   if(trialMode){setAuthMode("login");$("auth-register").disabled=!registrationOpen;$("trial-notice").hidden=registrationOpen;$("trial-notice").textContent=registrationOpen?"":"暂未开放新注册，已有账号可登录";$("file-limit-hint").textContent="单个文件 ≤ 1 MB · 每人 5 MB";}
@@ -970,7 +1006,7 @@ $("login-form").onsubmit = async event => {
     const result=await api(trialMode?`/api/${authMode==="register"?"register":authMode==="recover"?"recover":"login"}`:"/api/login", "POST", {password: $("password").value,...(trialMode?{username:$("username").value,invite:$("invite-code").value.trim(),recovery:$("recovery-code").value.trim()}:{})},30000);
     $("password").value="";$("invite-code").value="";$("recovery-code").value="";
     if(trialMode){boardAccount=result.account;accountName=result.username;isAdmin=!!result.admin;}
-    await refresh();await startMessages();if(result.recovery)showRecovery(result.recovery);else maybeDemo();
+    updateAccountCard();await refresh();await startMessages();if(result.recovery)showRecovery(result.recovery);else maybeDemo();
   }
   catch (error) { $("login-error").textContent = error.message; }
   finally { button.disabled = false; }

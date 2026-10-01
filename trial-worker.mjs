@@ -1,4 +1,4 @@
-import board,{digest,applyImport,SOURCES} from "./worker.mjs";
+import board,{digest,applyImport,SOURCES,autoArchive} from "./worker.mjs";
 import {partition} from "./trial-schema.mjs";
 import {runCloud} from "./cloud.mjs";
 import {community} from "./community.mjs";
@@ -9,6 +9,7 @@ export async function runTrialCloud(env,scheduledTime=Date.now(),options={}) {
   const user=await env.DB.prepare("SELECT id,slot FROM trial_users WHERE slot=? AND status='active'").bind(slot).first();
   if(!user)return {skipped:true};
   const scoped=userEnvironment(env,user);
+  await autoArchive(scoped.DB,scheduledTime);
   return runCloud(scoped,payload=>applyImport(payload,scoped.DB,SOURCES),options);
 }
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status});};

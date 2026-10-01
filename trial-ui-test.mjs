@@ -85,7 +85,7 @@ try {
   const cloudRequested=new Promise(resolve=>{receivedCloud=resolve;});
   await page.route("**/api/cloud",route=>{staleCloudRoute=route;receivedCloud();});
   await page.evaluate(()=>{window.pendingCloudCheck=checkCloud();});await cloudRequested;
-  await page.locator("#sources-dialog .close-dialog").click();await page.locator("#logout").click();await page.locator("#logout-dialog").waitFor({state:"visible"});await page.locator("#logout-dialog .close-dialog").click();assert.equal(await page.locator("#workspace").isVisible(),true);await page.locator("#logout").click();await page.locator("#confirm-logout").click();await page.locator("#login").waitFor({state:"visible"});
+  await page.locator("#sources-dialog .close-dialog").click();await accountEntry(page,'logout');await page.locator("#logout-dialog").waitFor({state:"visible"});await page.locator("#logout-dialog .close-dialog").click();assert.equal(await page.locator("#workspace").isVisible(),true);await accountEntry(page,'logout');await page.locator("#confirm-logout").click();await page.locator("#login").waitFor({state:"visible"});
   await staleCloudRoute.fulfill({contentType:"application/json",body:JSON.stringify({available:true,enabled:true,sources:{smartestu:{error_code:"auth_expired",auth_expired_at:"old-account"}}})});
   await page.evaluate(()=>window.pendingCloudCheck);await page.unroute("**/api/cloud");
   assert.equal(await page.evaluate(()=>cloudState===null),true,"late cloud responses must not restore a signed-out account's state");
@@ -93,7 +93,12 @@ try {
   assert.equal(await page.locator("#website-list .website-row").count(),0);
   await page.locator("#auth-login").click();await page.locator("#username").fill("trial_student");await page.locator("#password").fill("Ab1234");await page.locator("#login-form button[type=submit]").click();await page.locator("#workspace").waitFor({state:"visible"});
   await page.locator("#sources-button").click();await page.locator("#website-list a").filter({hasText:"course.example"}).waitFor();await page.locator("#sources-dialog .close-dialog").click();
-  await page.locator("#logout").click();await page.locator("#logout-dialog").waitFor({state:"visible"});await page.locator("#logout-dialog .close-dialog").click();assert.equal(await page.locator("#workspace").isVisible(),true);await page.locator("#logout").click();await page.locator("#confirm-logout").click();await page.locator("#auth-recover").click();await page.locator("#recovery-code").fill(recovery);await page.locator("#password").fill("New-synthetic-password-123");await page.locator("#login-form button[type=submit]").click();await page.locator("#recovery-dialog").waitFor({state:"visible"});
+  await accountEntry(page,'logout');await page.locator("#logout-dialog").waitFor({state:"visible"});await page.locator("#logout-dialog .close-dialog").click();assert.equal(await page.locator("#workspace").isVisible(),true);await accountEntry(page,'logout');await page.locator("#confirm-logout").click();await page.locator("#auth-recover").click();await page.locator("#recovery-code").fill(recovery);await page.locator("#password").fill("New-synthetic-password-123");await page.locator("#login-form button[type=submit]").click();await page.locator("#recovery-dialog").waitFor({state:"visible"});
   assert.notEqual(await page.locator("#recovery-value").textContent(),recovery);assert.deepEqual(errors,[]);
   console.log("PASS: six-character passwords, eight-step auto/manual tour with cloud instructions, top-aligned empty sections, individual website configuration, all-source sync, cloud authorization entry, logout confirmation, invite registration, recovery download, username/password login, recovery reset, five-step setup with integrated cloud authorization and reload guide, missing-extension guidance, pairing, generic links, preview setup handoff, first scan, persisted settings, logout cleanup and 320–768px layouts. Provider and extension use explicit test doubles.");
 } finally {await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));database.close();}
+
+async function accountEntry(page,id){
+  if(!await page.locator('#user-menu').isVisible())await page.locator('#user-menu-toggle').click();
+  await page.locator('#'+id).click();
+}

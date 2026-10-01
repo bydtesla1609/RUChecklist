@@ -14,7 +14,7 @@
 - 待办可在**看板卡片和任务详情**中添加、编辑、删除、勾选、拖动排序；支持鼠标、触摸和手柄上下方向键。
 - 卡片操作即时保存；详情内清单修改随“保存任务”提交。文字编辑用勾号或 Enter 确认，用返回按钮或 Escape 取消。
 - 作业填 DDL；其他任务填起止时间。统一按北京时间输入和显示。
-- 待开始、进行中按截止 / 结束时间排序；已完成按完成时间倒序。任务由用户手动归档，归档处支持分类、查看完整详情、恢复与确认删除。
+- 待开始、进行中按截止 / 结束时间排序；已完成按完成时间倒序。支持手动归档，完成满 7 天也会自动归档；课程除外。归档处支持分类、查看完整详情、恢复与确认删除。
 - 登录后的页面前台每 6 秒同步；输入、拖动或保存期间暂停重绘。并发修改返回冲突并保留本地清单草稿。
 - 手动添加附件和链接；图片、PDF 在浏览器打开，Word 等文件下载查看，卡片及详情均可访问。
 - 私人看板通过访问密码保护，附件下载也需要登录。公开代码不包含密码、数据库、课程地址或个人任务。
@@ -53,6 +53,7 @@ wrangler d1 execute campus-task-board --remote --file migrations/0003_resources.
 wrangler d1 execute campus-task-board --remote --file migrations/0004_completion.sql
 wrangler d1 execute campus-task-board --remote --file migrations/0005_academic_categories.sql
 wrangler d1 execute campus-task-board --remote --file migrations/0006_manual_archive.sql
+wrangler d1 execute campus-task-board --remote --file migrations/0007_auto_archive.sql
 ```
 
 先运行一次本地版以生成密码，再生成仅保存在本地的部署密钥文件：
@@ -242,3 +243,13 @@ node extension-ui-test.mjs
 既有试用库升级：先私密备份数据库，运行 `node trial-upgrade-community.mjs`，核对尚无 `u1_tasks.archived_at`，再执行生成的 `dist/trial-upgrade-community.sql`（仅一次）。新试用库直接使用 `build:trial` 生成的最新建库 SQL。迁移只新增列、索引和消息表，不删除账号、任务或附件。个人库执行 `migrations/0006_manual_archive.sql`；本地开发启动时会自动迁移。
 
 验证：`npm test`、`npm run test:community-ui`、`npm run test:ui`、`npm run test:trial-ui`。聊天、公告测试只使用本地合成账号，不向真实试用者发送测试内容。网页升级至 v2.14.0，扩展继续为 v1.9.1。
+
+## 2.15 课程统计、双重归档与账户菜单
+
+课程是日程安排，保留课表和日历展示，但不参与总览的待完成、未来 7 天到期、已逾期、已完成统计，也不计入总览导航的任务数量。课程导航显示课程安排数量，不按完成状态过滤。
+
+归档同时支持手动与自动：非课程任务完成满 7 天自动归档，可提前手动归档。归档不删除内容、附件或原始时间；恢复后至少保留 7 天，避免立即再次归档。自动检查在打开看板/归档处时执行，定时同步 Worker 也会按既有周期执行，未授权云端采集的账号同样可自动归档。只更新首次符合条件的记录，不反复写入已归档项。既有 v2.14 试用库运行 `node trial-upgrade-archive.mjs`，备份后执行生成的 `dist/trial-upgrade-archive.sql` 一次，再发布；个人库执行迁移 0007。新试用建库 SQL 已包含该列。
+
+侧栏底部只保留使用演示、来源与同步、账户卡片。点击账户卡片打开消息、反馈/公告、归档、恢复码设置与退出；未读反馈在卡片显示提示点。菜单支持外部点击、Esc 和键盘 Tab，手机内保持在可视区域。左上角品牌下显示网页版本，扩展版本仍为 1.9.1。
+
+视觉保持深蓝紫配色，加入一次性的页面分层入场、菜单/弹窗轻过渡、按钮光影和细线强调。普通任务卡片不新增整卡点击或悬停暗示；自动刷新不重复播放页面入场动画，尊重减少动态效果设置。

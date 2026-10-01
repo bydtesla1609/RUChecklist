@@ -45,7 +45,11 @@ const FIELDS = ["category", "title", "content", "location", "todos", "links", "a
 const stored = (task, field) => ["todos","links","attachments","details"].includes(field) ? JSON.stringify(task[field]) : task[field];
 const FILE_LIMIT=10*1024*1024, STORAGE_LIMIT=100*1024*1024, CHUNK_SIZE=512*1024;
 const now = () => new Date().toISOString();
-export const RELEASE={version:"2.14.0",title:"消息、反馈与手动归档已上线",items:["任务支持手动归档与恢复，停止 7 天自动归档","删除任务、待办、附件、链接或网站前都会确认","新增消息看板、管理员公告与私聊反馈，适配手机使用"]};
+export const RELEASE={version:"2.15.0",title:"课程统计、归档与账户菜单优化",items:["课程不再计入任务统计，继续按课表和日历展示","保留手动归档，恢复完成满 7 天自动归档","消息、反馈、归档和账号设置统一收进账户菜单","新增页面切换动效、轻光影与版本标识"]};
+export async function autoArchive(db,time=Date.now()) {
+  const stamp=new Date(time).toISOString(),cutoff=new Date(time-7*86400000).toISOString();
+  return db.prepare("UPDATE tasks SET archived_at=?,updated_at=?,revision=revision+1 WHERE deleted=0 AND archived_at IS NULL AND category<>'课程' AND status='done' AND datetime(completed_at)<=datetime(?) AND (archive_restored_at IS NULL OR datetime(archive_restored_at)<=datetime(?))").bind(stamp,stamp,cutoff,cutoff).run();
+}
 const completedAt = (status,previous,stamp) => status==="done" ? (previous?.status==="done" && previous.completed_at ? previous.completed_at : stamp) : null;
 const randomToken = () => [...crypto.getRandomValues(new Uint8Array(24))].map(b => b.toString(16).padStart(2,"0")).join("");
 export async function digest(text) { return [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))].map(b => b.toString(16).padStart(2,"0")).join(""); }
@@ -367,6 +371,7 @@ async function route(request, env) {
     return json({ok:true},200,{"Set-Cookie":cookie(request,"",0)});
   }
   if(path==="/api/board" && method==="GET") {
+    await autoArchive(db);
     const [tasks,sources,files,storage]=await db.batch([db.prepare("SELECT * FROM tasks WHERE deleted=0 AND archived_at IS NULL ORDER BY created_at DESC"),db.prepare("SELECT sources.*, (SELECT count(*) FROM tasks WHERE tasks.source=sources.id AND tasks.deleted=0) AS imported_count, (SELECT count(*) FROM tasks WHERE tasks.source=sources.id AND tasks.deleted=0 AND tasks.source_status IS NOT NULL) AS status_count FROM sources"),
       db.prepare("SELECT id,name,type,size FROM files WHERE id IN (SELECT value FROM tasks,json_each(tasks.attachments) WHERE tasks.deleted=0)"),db.prepare("SELECT coalesce(sum(size),0) AS used FROM files")]);
     const configuration=await allSources(env);
@@ -375,6 +380,7 @@ async function route(request, env) {
     return json({tasks:tasks.results.map(task=>expose(task,byId)),timetables:tables.results.map(row=>JSON.parse(row.value)),sources:Object.entries(configuration).map(([id,config])=>({id,last_seen:null,task_count:0,imported_count:0,status_count:0,...sources.results.find(source=>source.id===id),...config})),storage:{used:storage.results[0].used,limit:env.TRIAL_MODE?5*1024*1024:STORAGE_LIMIT,file_limit:env.TRIAL_MODE?1024*1024:FILE_LIMIT},server_time:now()});
   }
   if(path==="/api/archive" && method==="GET") {
+    await autoArchive(db);
     const category=url.searchParams.get("category") || "全部", offset=Number(url.searchParams.get("offset") || 0);
     if(category!=="全部" && !CATEGORIES.includes(category)) fail(400,"归档分类不正确");
     if(!Number.isSafeInteger(offset) || offset<0 || offset>1000000) fail(400,"归档页码不正确");
@@ -402,7 +408,7 @@ async function route(request, env) {
   if(archiveMatch && method==="PATCH"){
     const data=await body(request);
     if(typeof data.archived!=="boolean" || !Number.isInteger(data.revision))fail(400,"归档操作缺少状态或任务版本");
-    const stamp=now(),row=await db.prepare("UPDATE tasks SET archived_at=?,revision=revision+1,updated_at=? WHERE id=? AND revision=? AND deleted=0 RETURNING *").bind(data.archived?stamp:null,stamp,archiveMatch[1],data.revision).first();
+    const stamp=now(),row=await db.prepare("UPDATE tasks SET archived_at=?,archive_restored_at=?,revision=revision+1,updated_at=? WHERE id=? AND revision=? AND deleted=0 RETURNING *").bind(data.archived?stamp:null,data.archived?null:stamp,stamp,archiveMatch[1],data.revision).first();
     if(!row)fail(409,"任务已更新，请刷新后重试");return json(await withFiles(row,db));
   }
   const match=path.match(/^\/api\/tasks\/([a-zA-Z0-9-]{1,50})$/);
@@ -436,7 +442,7 @@ async function route(request, env) {
   fail(404,"接口不存在");
 }
 export default {
-  async scheduled(event,env,ctx) {ctx.waitUntil(runCloud(env,payload=>applyImport(payload,env.DB,configuredSources(env))));},
+  async scheduled(event,env,ctx) {ctx.waitUntil((async()=>{await autoArchive(env.DB,event.scheduledTime);await runCloud(env,payload=>applyImport(payload,env.DB,configuredSources(env)));})());},
   async fetch(request, env) {
     let response;
     try { response=await route(request,env); }
