@@ -162,31 +162,66 @@ function checklist(initial, persist, inDialog = false) {
       handle.setAttribute("aria-label", `拖动排序：${item.text}，也可按上下方向键`);
       handle.title = "拖动排序 / 上下方向键";
       handle.onkeydown = async event => {
+        if (event.key === "Escape" && drag) { event.preventDefault(); event.stopPropagation(); finishDrag(false); return; }
+        if (drag) return;
         if (!["ArrowUp", "ArrowDown"].includes(event.key) || editingId || root.dataset.busy) return;
         event.preventDefault(); const from = items.indexOf(item), to = from + (event.key === "ArrowUp" ? -1 : 1);
         if (to < 0 || to >= items.length) return;
         items.splice(to, 0, items.splice(from, 1)[0]); await commit();
         list.querySelector(`[data-id="${item.id}"] .drag-handle`)?.focus();
       };
-      let dragging = false;
-      handle.onpointerdown = event => {
-        if (event.button !== 0 || editingId || adding || root.dataset.busy) return;
-        event.preventDefault(); dragging = true; row.classList.add("dragging"); root.dataset.dirty = "true";
-        handle.setPointerCapture(event.pointerId);
-      };
-      handle.onpointermove = event => {
-        if (!dragging) return;
-        const siblings = [...list.children].filter(node => node !== row);
-        const next = siblings.find(node => event.clientY < node.getBoundingClientRect().top + node.getBoundingClientRect().height / 2);
-        if (row.nextElementSibling !== (next || null)) { list.insertBefore(row, next || null); handle.setPointerCapture(event.pointerId); }
-      };
-      handle.onpointerup = async () => {
-        if (!dragging) return; dragging = false; row.classList.remove("dragging");
+      let drag = null;
+      const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+      async function finishDrag(saveOrder) {
+        if (!drag || drag.ending) return;
+        const current = drag; current.ending = true;
+        if (handle.hasPointerCapture(current.pointerId)) handle.releasePointerCapture(current.pointerId);
+        if (saveOrder && !reducedMotion()) {
+          const landing = row.animate([{transform:row.style.transform}, {transform:`translateY(${current.placeholder.offsetTop}px) scale(1)`}],
+            {duration:150,easing:"cubic-bezier(.2,.7,.25,1)",fill:"forwards"});
+          await landing.finished.catch(()=>{}); landing.cancel();
+        }
+        current.placeholder.replaceWith(row);
+        row.classList.remove("dragging"); row.style.removeProperty("transform");
+        list.querySelectorAll(".todo-row").forEach(node=>node.getAnimations().forEach(animation=>animation.cancel()));
+        drag = null;
+        if (!saveOrder) { draw(); markDirty(); return; }
         const order = new Map(items.map(item => [item.id, item]));
         items = [...list.children].map(node => order.get(node.dataset.id));
         if (JSON.stringify(items) !== JSON.stringify(saved)) await commit(); else markDirty();
+        list.querySelector(`[data-id="${item.id}"] .drag-handle`)?.focus({preventScroll:true});
+      }
+      handle.onpointerdown = event => {
+        if (event.button !== 0 || editingId || adding || root.dataset.busy || list.querySelector(".dragging")) return;
+        event.preventDefault(); handle.focus({preventScroll:true});
+        const rect = row.getBoundingClientRect(), top = row.offsetTop;
+        const placeholder = element("div",null,"todo-placeholder");
+        placeholder.style.height = `${rect.height}px`; placeholder.setAttribute("aria-hidden","true");
+        row.before(placeholder);
+        drag = {placeholder,offsetY:event.clientY-rect.top,pointerId:event.pointerId,ending:false};
+        row.classList.add("dragging"); row.style.transform = `translateY(${top}px) scale(1.015)`;
+        root.dataset.dirty = "true";
+        handle.setPointerCapture(event.pointerId);
       };
-      handle.onpointercancel = () => { dragging = false; draw(); markDirty(); };
+      handle.onpointermove = event => {
+        if (!drag || drag.ending) return;
+        const y = event.clientY-list.getBoundingClientRect().top;
+        row.style.transform = `translateY(${y-drag.offsetY}px) scale(1.015)`;
+        const siblings = [...list.querySelectorAll(".todo-row:not(.dragging)")];
+        const next = siblings.find(node => y < node.offsetTop + node.offsetHeight / 2);
+        let after = drag.placeholder.nextElementSibling;
+        if (after === row) after = after.nextElementSibling;
+        if (after === (next || null)) return;
+        const positions = siblings.map(node => node.getBoundingClientRect().top);
+        siblings.forEach(node=>node.getAnimations().forEach(animation=>animation.cancel()));
+        list.insertBefore(drag.placeholder,next || null);
+        if (!reducedMotion()) siblings.forEach((node,index)=>{
+          const offset = positions[index]-node.getBoundingClientRect().top;
+          if (offset) node.animate([{transform:`translateY(${offset}px)`},{transform:"translateY(0)"}],{duration:180,easing:"cubic-bezier(.2,.7,.25,1)"});
+        });
+      };
+      handle.onpointerup = () => finishDrag(true);
+      handle.onpointercancel = handle.onlostpointercapture = () => finishDrag(false);
       const check = element("input"); check.type = "checkbox"; check.checked = item.done; check.setAttribute("aria-label", `完成：${item.text}`);
       check.onchange = () => { item.done = check.checked; commit(); };
       row.append(handle, check);
@@ -547,7 +582,6 @@ function renderCalendar() {
     if(matching.length>2)day.append(element("span",`+${matching.length-2} 项`,"day-more"));
     day.onclick=()=>{
       calendarSelect(key);$("board").querySelector(`[data-date="${key}"]`)?.focus({preventScroll:true});
-      if(selectedDay===key) $("board").querySelector(".day-agenda").scrollIntoView({behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"instant":"smooth",block:"start"});
     };
     day.onkeydown=event=>{
       const delta={ArrowLeft:-1,ArrowRight:1,ArrowUp:-7,ArrowDown:7}[event.key];if(!delta)return;

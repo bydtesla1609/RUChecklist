@@ -102,9 +102,24 @@ try {
   await saved(page, async () => {
     const a = await card.locator(".drag-handle").first().boundingBox(), b = await card.locator(".todo-row").last().boundingBox();
     await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2); await page.mouse.down();
-    await page.mouse.move(a.x + a.width / 2, b.y + b.height - 2, {steps: 10}); await page.mouse.up();
+    const lifted=await card.locator(".dragging").boundingBox();
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2 + 10);
+    const moved=await card.locator(".dragging").boundingBox();
+    assert.ok(Math.abs(moved.y-lifted.y-10)<1,"dragged row follows the pointer");
+    assert.equal(await card.locator(".todo-placeholder").count(),1);
+    await page.mouse.move(a.x + a.width / 2, b.y + b.height - 2, {steps: 10});
+    assert.equal(await card.locator(".todo-list").evaluate(list=>list.lastElementChild.classList.contains("todo-placeholder")),true,"target position has a gap");
+    assert.equal(await card.locator(".todo-row:not(.dragging)").evaluate(row=>row.getAnimations().length>0),true,"neighbor slides into position");
+    await page.mouse.up();
   });
   assert.deepEqual(await card.locator(".todo-text").allTextContents(), ["读论文并标注", "整理笔记"]);
+  assert.equal(await card.locator(".dragging,.todo-placeholder").count(),0);
+  const beforeCancel=await card.locator(".todo-text").allTextContents();
+  const cancelHandle=await card.locator(".drag-handle").first().boundingBox();
+  await page.mouse.move(cancelHandle.x+10,cancelHandle.y+10);await page.mouse.down();await page.mouse.move(cancelHandle.x+10,cancelHandle.y+80);
+  await page.keyboard.press("Escape");await page.mouse.up();
+  assert.deepEqual(await card.locator(".todo-text").allTextContents(),beforeCancel,"cancelled drag preserves order");
+  assert.equal(await card.locator(".dragging,.todo-placeholder,[data-dirty]").count(),0);
   const mobile = await browser.newContext({viewport: {width: 390, height: 844}, isMobile: true, hasTouch: true, deviceScaleFactor: 2});
   await mobile.addInitScript(()=>localStorage.setItem("ruchecklist-demo:personal","seen"));
   const phone = await mobile.newPage(); phone.on("pageerror", error => errors.push(error.message));
@@ -215,7 +230,11 @@ try {
   assert.equal(await page.locator(".day-list .task").count(),3);
   // UTC 16:15 belongs to the next Beijing date; ranges include both ends.
   assert.equal(await page.locator("#board [data-date='2026-10-01'] .day-task").count(),1);
+  await page.locator("[data-date='2026-10-08']").scrollIntoViewIfNeeded();
+  const desktopScroll=await page.evaluate(()=>scrollY);
   await page.locator("[data-date='2026-10-08']").click();
+  await page.waitForTimeout(400);
+  assert.ok(Math.abs(await page.evaluate(()=>scrollY)-desktopScroll)<1,"calendar selection keeps desktop viewport in place");
   assert.equal(await page.locator("[data-date='2026-10-08']").getAttribute("aria-pressed"),"true");
   assert.match(await page.locator(".day-list .task-title").textContent(),/课程研究/);
   await page.locator("[data-date='2026-10-09']").click();assert.equal(await page.locator(".day-empty").count(),1);
@@ -256,6 +275,13 @@ try {
   await page.screenshot({animations:"disabled",path:"data/screenshots/desktop.png",fullPage:true});
   await phone.evaluate(() => refresh()); await category(phone, "总览").click();
   await phone.evaluate(()=>{calendarMonth="2026-10";selectedDay="2026-10-02";renderCalendar();scrollTo(0,0);});
+  await phone.evaluate(()=>Promise.all(document.getAnimations().map(a=>a.finished.catch(()=>{}))));
+  await phone.locator("[data-date='2026-10-08']").scrollIntoViewIfNeeded();
+  const mobileScroll=await phone.evaluate(()=>scrollY);
+  await phone.locator("[data-date='2026-10-08']").click();await phone.waitForTimeout(400);
+  assert.ok(Math.abs(await phone.evaluate(()=>scrollY)-mobileScroll)<1,"calendar selection keeps mobile viewport in place");
+  assert.match(await phone.locator(".day-agenda h2").textContent(),/10 月 8 日/);
+  await phone.evaluate(()=>{calendarSelect("2026-10-02");scrollTo(0,0);});
   await phone.screenshot({animations:"disabled",path:"data/screenshots/mobile.png",fullPage:true});
   await phone.screenshot({animations:"disabled",path:"data/screenshots/mobile-top.png"});
   for(const width of [320,375,430,768]) {
@@ -345,6 +371,7 @@ try {
   await page.locator("#course-week").selectOption("all");
   await page.screenshot({animations:"disabled",path:"data/screenshots/courses.png",fullPage:true});
   await category(page,"考试").click();assert.equal(await page.locator(".schedule-columns>.column").count(),2);assert.match(await page.locator(".exam-group").first().textContent(),/座位 · 28/);
+  assert.equal(await page.locator("#count-open").evaluate(node=>getComputedStyle(node).color===getComputedStyle(document.body).color),true,"unfinished exams use normal text color");
   await page.screenshot({animations:"disabled",path:"data/screenshots/exams.png",fullPage:true});
   await phone.evaluate(()=>refresh());
   for(const section of ["课程","考试","会议","活动"]) {
