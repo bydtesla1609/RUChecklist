@@ -15,11 +15,13 @@ server.listen(0,"127.0.0.1");await once(server,"listening");const origin=`http:/
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE || "playwright");const browser=await chromium.launch({headless:true});
 try {
   const context=await browser.newContext({viewport:{width:1440,height:1000}}),page=await context.newPage(),errors=[];page.on("pageerror",e=>errors.push(e.stack));
+  await mkdir("data/screenshots",{recursive:true});
   await page.goto(origin);await page.locator("#auth-register").click();
   await page.locator("#username").fill("trial_student");await page.locator("#password").fill("Ab1234");await page.locator("#invite-code").fill(invites[0]);
   await page.locator("#login-form button[type=submit]").click();await page.locator("#recovery-dialog").waitFor({state:"visible"});
   const recovery=await page.locator("#recovery-value").textContent();assert.equal(recovery.length,48);
   const download=page.waitForEvent("download");await page.locator("#download-recovery").click();assert.equal((await download).suggestedFilename(),"RUChecklist-账号恢复码.txt");await page.locator("#recovery-done").click();
+  await page.locator("#messages-dialog").waitFor({state:"visible"});await page.locator("#messages-read").click();
   await page.locator("#demo-dialog").waitFor({state:"visible"});
   for(let step=0;step<8;step++) {
     await page.locator("#demo-progress").filter({hasText:`${step+1} / 8`}).waitFor();
@@ -54,7 +56,7 @@ try {
   await page.waitForFunction(()=>fixtureMessages.some(message=>message.command==="scan" && message.source==="smartestu"));
   assert.equal(await page.locator("#sources-list .source-sync").count(),4);
   assert.equal(await page.locator("#sync-settings").count(),0);assert.equal(await page.locator("#cloud-settings").isVisible(),true);await page.locator("#cloud-authorize").click();await page.waitForFunction(()=>fixtureCommands.includes("options"));
-  await page.evaluate(()=>fixtureVersion="1.6.0");await page.locator("#guide-install > summary").click();await page.locator("#collector-recheck").click();await page.locator("#collector-state").filter({hasText:"1.6.0"}).waitFor();
+  await page.evaluate(()=>fixtureVersion="1.6.0");if(!await page.locator("#collector-recheck").isVisible())await page.locator("#guide-install > summary").click();await page.locator("#collector-recheck").click();await page.locator("#collector-state").filter({hasText:"1.6.0"}).waitFor();
   await addWebsite("https://www.zhifz.com/#/zuoye");
   await page.locator("#source-links-result").filter({hasText:"1.7.0"}).waitFor();
   assert.equal(await page.evaluate(()=>fixtureMessages.some(message=>message.command==="scan" && message.source==="zhifz")),false);

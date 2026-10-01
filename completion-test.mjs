@@ -8,7 +8,7 @@ import worker from "./worker.mjs";
 import {createEnvironment} from "./local.mjs";
 import "./extension/parsers.js";
 
-test("completion transitions, unchanged imports, seven-day archive and protected details",async()=>{
+test("completion transitions, unchanged imports, manual archive and protected details",async()=>{
   const root=resolve(tmpdir()),dir=await mkdtemp(join(root,"campus-completion-"));
   const {env,database}=await createEnvironment(dir,"completion-test-only");let cookie="";
   async function api(path,method="GET",value,headers={}) {
@@ -42,6 +42,8 @@ test("completion transitions, unchanged imports, seven-day archive and protected
     assert.equal((await upload()).data.changed,0);assert.equal((await get()).status,"done");
     const archivedTime=new Date(Date.now()-8*86400000).toISOString();
     database.prepare("UPDATE tasks SET completed_at=? WHERE id=?").run(archivedTime,id);
+    assert.equal((await api("/api/board")).data.tasks.length,1,"old completions stay visible until manually archived");
+    current=await get();await api(`/api/tasks/${id}/archive`,"PATCH",{revision:current.revision,archived:true});
     assert.equal((await api("/api/board")).data.tasks.length,0);
     const archive=(await api("/api/archive?category=作业")).data;
     assert.equal(archive.total,1);assert.equal(archive.tasks[0].id,id);assert.ok(archive.tasks[0].due_at);
@@ -51,6 +53,8 @@ test("completion transitions, unchanged imports, seven-day archive and protected
     // Missing/unknown source status and absent deadline never reopen or erase data.
     delete task.status;task.due_at=null;await upload();assert.equal((await get()).completed_at,archivedTime);assert.ok((await get()).due_at);
     current=await get();await api(`/api/tasks/${id}`,"PATCH",{status:"doing",revision:current.revision});
+    assert.equal((await api("/api/archive")).data.total,1,"status changes do not restore archived tasks");
+    current=await get();await api(`/api/tasks/${id}/archive`,"PATCH",{revision:current.revision,archived:false});
     assert.equal((await api("/api/archive")).data.total,0);assert.equal((await api("/api/board")).data.tasks.length,1);
     current=await get();await api(`/api/tasks/${id}`,"PATCH",{status:"done",revision:current.revision});
     assert.ok((await get()).completed_at>archivedTime);

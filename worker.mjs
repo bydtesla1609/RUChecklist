@@ -45,7 +45,7 @@ const FIELDS = ["category", "title", "content", "location", "todos", "links", "a
 const stored = (task, field) => ["todos","links","attachments","details"].includes(field) ? JSON.stringify(task[field]) : task[field];
 const FILE_LIMIT=10*1024*1024, STORAGE_LIMIT=100*1024*1024, CHUNK_SIZE=512*1024;
 const now = () => new Date().toISOString();
-const archiveCutoff = () => new Date(Date.now()-7*86400000).toISOString();
+export const RELEASE={version:"2.14.0",title:"消息、反馈与手动归档已上线",items:["任务支持手动归档与恢复，停止 7 天自动归档","删除任务、待办、附件、链接或网站前都会确认","新增消息看板、管理员公告与私聊反馈，适配手机使用"]};
 const completedAt = (status,previous,stamp) => status==="done" ? (previous?.status==="done" && previous.completed_at ? previous.completed_at : stamp) : null;
 const randomToken = () => [...crypto.getRandomValues(new Uint8Array(24))].map(b => b.toString(16).padStart(2,"0")).join("");
 export async function digest(text) { return [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))].map(b => b.toString(16).padStart(2,"0")).join(""); }
@@ -291,7 +291,7 @@ async function route(request, env) {
   const url=new URL(request.url), path=url.pathname, method=request.method, db=env.DB;
   if(!path.startsWith("/api/")) {
     if(method!=="GET" && method!=="HEAD") fail(405,"不支持此操作");
-    if(path!=="/" && !["/static/app.js","/static/style.css","/static/icon.svg","/extension.zip"].includes(path)) fail(404,"页面不存在");
+    if(path!=="/" && !["/static/app.js","/static/messages.js","/static/style.css","/static/icon.svg","/extension.zip"].includes(path)) fail(404,"页面不存在");
     const assetURL=new URL(request.url); assetURL.pathname=path.replace(/^\/static\//,"/");
     return env.ASSETS.fetch(new Request(assetURL,request));
   }
@@ -329,6 +329,13 @@ async function route(request, env) {
   const authenticated=env.TRIAL_AUTHENTICATED===true || !!(await db.prepare("SELECT 1 FROM sessions WHERE hash=? AND expires>?").bind(hash,Date.now()).first());
   if(path==="/api/session" && method==="GET") return json({authenticated});
   if(!authenticated) fail(401,"请先登录看板");
+  if(path==="/api/notices" && method==="GET"){
+    const row=await db.prepare("SELECT value FROM settings WHERE key='read_release'").first();return json({release:RELEASE,unread:row?.value!==RELEASE.version});
+  }
+  if(path==="/api/notices/read" && method==="POST"){
+    if((await body(request)).version!==RELEASE.version)fail(400,"版本信息已更新，请刷新消息");
+    await db.prepare("INSERT INTO settings(key,value) VALUES ('read_release',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(RELEASE.version).run();return json({ok:true});
+  }
   if(path==="/api/source-links" && method==="GET")return json({links:await savedLinks(env)});
   if(path==="/api/source-links" && method==="PUT") {
     const links=sourceLinks((await body(request)).urls);
@@ -360,7 +367,7 @@ async function route(request, env) {
     return json({ok:true},200,{"Set-Cookie":cookie(request,"",0)});
   }
   if(path==="/api/board" && method==="GET") {
-    const [tasks,sources,files,storage]=await db.batch([db.prepare("SELECT * FROM tasks WHERE deleted=0 AND (category='课程' OR status<>'done' OR completed_at IS NULL OR completed_at>?) ORDER BY created_at DESC").bind(archiveCutoff()),db.prepare("SELECT sources.*, (SELECT count(*) FROM tasks WHERE tasks.source=sources.id AND tasks.deleted=0) AS imported_count, (SELECT count(*) FROM tasks WHERE tasks.source=sources.id AND tasks.deleted=0 AND tasks.source_status IS NOT NULL) AS status_count FROM sources"),
+    const [tasks,sources,files,storage]=await db.batch([db.prepare("SELECT * FROM tasks WHERE deleted=0 AND archived_at IS NULL ORDER BY created_at DESC"),db.prepare("SELECT sources.*, (SELECT count(*) FROM tasks WHERE tasks.source=sources.id AND tasks.deleted=0) AS imported_count, (SELECT count(*) FROM tasks WHERE tasks.source=sources.id AND tasks.deleted=0 AND tasks.source_status IS NOT NULL) AS status_count FROM sources"),
       db.prepare("SELECT id,name,type,size FROM files WHERE id IN (SELECT value FROM tasks,json_each(tasks.attachments) WHERE tasks.deleted=0)"),db.prepare("SELECT coalesce(sum(size),0) AS used FROM files")]);
     const configuration=await allSources(env);
     const byId=new Map(files.results.map(file=>[file.id,file]));
@@ -371,10 +378,10 @@ async function route(request, env) {
     const category=url.searchParams.get("category") || "全部", offset=Number(url.searchParams.get("offset") || 0);
     if(category!=="全部" && !CATEGORIES.includes(category)) fail(400,"归档分类不正确");
     if(!Number.isSafeInteger(offset) || offset<0 || offset>1000000) fail(400,"归档页码不正确");
-    const where="deleted=0 AND category<>'课程' AND status='done' AND completed_at<=?"+(category==="全部"?"":" AND category=?");
-    const values=[archiveCutoff(),...(category==="全部"?[]:[category])];
+    const where="deleted=0 AND archived_at IS NOT NULL"+(category==="全部"?"":" AND category=?");
+    const values=category==="全部"?[]:[category];
     const [items,count]=await db.batch([
-      db.prepare(`SELECT id,title,category,due_at,starts_at,ends_at,completed_at,revision FROM tasks WHERE ${where} ORDER BY completed_at DESC,id DESC LIMIT 100 OFFSET ?`).bind(...values,offset),
+      db.prepare(`SELECT id,title,category,due_at,starts_at,ends_at,completed_at,archived_at,revision FROM tasks WHERE ${where} ORDER BY archived_at DESC,id DESC LIMIT 100 OFFSET ?`).bind(...values,offset),
       db.prepare(`SELECT count(*) AS total FROM tasks WHERE ${where}`).bind(...values)
     ]);
     return json({tasks:items.results,total:count.results[0].total});
@@ -390,6 +397,13 @@ async function route(request, env) {
     const row=await db.prepare(`INSERT INTO tasks(id,${FIELDS.join(",")},created_at,updated_at,completed_at)
       VALUES (${Array(FIELDS.length+4).fill("?").join(",")}) RETURNING *`).bind(id,...FIELDS.map(f=>stored(task,f)),stamp,stamp,completedAt(task.status,null,stamp)).first();
     return json(await withFiles(row,db),201);
+  }
+  const archiveMatch=path.match(/^\/api\/tasks\/([a-zA-Z0-9-]{1,50})\/archive$/);
+  if(archiveMatch && method==="PATCH"){
+    const data=await body(request);
+    if(typeof data.archived!=="boolean" || !Number.isInteger(data.revision))fail(400,"归档操作缺少状态或任务版本");
+    const stamp=now(),row=await db.prepare("UPDATE tasks SET archived_at=?,revision=revision+1,updated_at=? WHERE id=? AND revision=? AND deleted=0 RETURNING *").bind(data.archived?stamp:null,stamp,archiveMatch[1],data.revision).first();
+    if(!row)fail(409,"任务已更新，请刷新后重试");return json(await withFiles(row,db));
   }
   const match=path.match(/^\/api\/tasks\/([a-zA-Z0-9-]{1,50})$/);
   if(match && method==="GET") {

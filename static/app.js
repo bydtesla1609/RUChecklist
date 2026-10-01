@@ -10,7 +10,7 @@ let collectorState=null, cloudState=null, syncing=false;
 let syncSession=0, cloudCheckSequence=0, collectorCheckSequence=0, lastCloudCheck=0;
 const loginRemindersSeen=new Set();
 let sourceLinksState=null, boardAccount="personal", trialMode=false;
-let authMode="login", accountName="", registrationOpen=false;
+let authMode="login", accountName="", registrationOpen=false, isAdmin=false;
 let editingWebsite=-1, websiteBusy=false;
 let archiveCategory="全部", archiveItems=[], archiveTotal=0, archiveSequence=0;
 let selectedDay = localInput(new Date()).slice(0,10), calendarMonth = selectedDay.slice(0,7);
@@ -41,6 +41,7 @@ async function api(path, method = "GET", payload, timeout = 15000) {
 }
 function showLogin() {
   refreshSequence++;
+  if(typeof resetMessages==="function")resetMessages();
   syncSession++;lastCloudCheck=0;loginRemindersSeen.clear();
   $("expired-sites").replaceChildren();
   $("workspace").hidden = true;
@@ -79,7 +80,7 @@ function fileRow(file, removable = false) {
   }
   if (removable) {
     const remove=element("button", "×"); remove.type="button"; remove.setAttribute("aria-label", `移除附件：${file.name}`); remove.disabled=uploading;
-    remove.onclick=()=>{ draftAttachments=draftAttachments.filter(value=>value.id!==file.id); renderAttachments(); }; row.append(remove);
+    remove.onclick=()=>{ if(!confirm(`移除附件“${file.name}”？保存任务后生效。`))return; draftAttachments=draftAttachments.filter(value=>value.id!==file.id); renderAttachments(); }; row.append(remove);
   }
   return row;
 }
@@ -93,7 +94,7 @@ function addLinkRow(link = {label:"",url:""}) {
   const row=element("div", null, "link-edit-row"), label=element("input"), url=element("input"), remove=element("button", "×");
   label.placeholder="链接名称（选填）"; label.maxLength=100; label.value=link.label; label.setAttribute("aria-label", "链接名称"); label.className="link-label";
   url.type="url"; url.placeholder="https://…"; url.maxLength=4000; url.value=link.url; url.setAttribute("aria-label", "链接地址"); url.className="link-url";
-  remove.type="button"; remove.setAttribute("aria-label", "移除链接"); remove.onclick=()=>row.remove(); row.append(label,url,remove); $("task-links").append(row);
+  remove.type="button"; remove.setAttribute("aria-label", "移除链接"); remove.onclick=()=>{if(confirm("移除这条链接？保存任务后生效。"))row.remove();}; row.append(label,url,remove); $("task-links").append(row);
 }
 $("add-link").onclick=()=>addLinkRow();
 $("attachment-input").onchange=async () => {
@@ -204,7 +205,7 @@ function checklist(initial, persist, inDialog = false) {
         text.setAttribute("aria-label", `编辑待办：${item.text}`);
         text.onclick = () => { editingId = item.id; draw(); markDirty(); list.querySelector(".todo-edit").focus(); };
         const remove = element("button", "×", "todo-action"); remove.type = "button"; remove.setAttribute("aria-label", `删除待办：${item.text}`);
-        remove.onclick = () => { items = items.filter(value => value.id !== item.id); commit(); };
+        remove.onclick = () => { if(!confirm(`删除待办“${item.text}”？`))return; items = items.filter(value => value.id !== item.id); commit(); };
         row.append(text, remove);
       }
       if (editingId && editingId !== item.id) row.querySelectorAll("button,input").forEach(node => node.disabled = true);
@@ -308,7 +309,8 @@ function card(task) {
   remove.type = "button";
   remove.setAttribute("aria-label", `删除：${task.title}`);
   remove.onclick = () => { if (hasDraft()) { notice("请先保存或取消正在编辑的待办事项"); return; } deleting = task; $("delete-dialog").showModal(); };
-  actions.append(edit, remove); footer.append(actions);
+  const archive=element("button","归档","archive-task");archive.type="button";archive.setAttribute("aria-label",`归档：${task.title}`);archive.onclick=()=>archiveTask(task,true);
+  actions.append(edit,archive,remove); footer.append(actions);
   let current = task;
   const list = checklist(task.todos, async todos => {
     current = await api(`/api/tasks/${task.id}`, "PATCH", {todos, revision: current.revision});
@@ -341,7 +343,7 @@ function render() {
   $("board").className="board"+(categoryFilter==="全部"?" calendar-board":categoryFilter!=="作业"?" schedule-board":"");
   document.querySelectorAll(".summary>div").forEach((node,index)=>{
     node.querySelector("span").textContent=["待完成","未来 7 天到期","已逾期","已完成"][index];
-    node.querySelector("small").textContent=["按截止 / 结束时间从近到远","按截止 / 结束时间从近到远","已过截止 / 结束时间，且尚未完成","按完成时间倒序，超过 7 天自动归档"][index];
+    node.querySelector("small").textContent=["按截止 / 结束时间从近到远","按截止 / 结束时间从近到远","已过截止 / 结束时间，且尚未完成","按完成时间倒序，可手动归档"][index];
   });
   $("board-caption").hidden=categoryFilter!=="作业";
   if(categoryFilter==="全部") {renderCalendar();renderSources();return;}
@@ -451,7 +453,7 @@ function renderSchedule(visible) {
   const pending=sorted.filter(t=>t.status!=="done"),done=sorted.filter(t=>t.status==="done").sort((a,b)=>(b.completed_at || "").localeCompare(a.completed_at || ""));
   scheduleStats(["未完成","未来 7 天","今天","已完成"],
     [pending.length,pending.filter(t=>Date.parse(t.starts_at)>=now && Date.parse(t.starts_at)<=now+7*86400000).length,pending.filter(t=>onCalendarDay(t,today)).length,done.length],
-    ["按开始时间从近到远","未来一周开始的安排","全部时间均为北京时间","按完成时间倒序，超过 7 天自动归档"]);
+    ["按开始时间从近到远","未来一周开始的安排","全部时间均为北京时间","按完成时间倒序，可手动归档"]);
   const columns=element("div",null,"schedule-columns");
   for(const [label,items,state] of [["未完成",pending,"todo"],["已完成",done,"done"]]) {
     const column=element("section",null,`column ${state}`),heading=element("h2",label);
@@ -543,7 +545,7 @@ function renderArchive() {
     view.setAttribute("aria-label",`查看归档：${task.title}`);
     view.onclick=async()=>{view.disabled=true;try{showArchiveDetail(await api(`/api/tasks/${task.id}`));}catch(error){$("archive-error").textContent=error.message;}finally{view.disabled=false;}};
     remove.setAttribute("aria-label",`删除归档：${task.title}`);remove.onclick=()=>{deleting=task;$("delete-dialog").showModal();};
-    actions.append(view,remove);row.append(info,actions);return row;
+    const restore=element("button","恢复","text-button");restore.setAttribute("aria-label",`恢复归档：${task.title}`);restore.onclick=()=>archiveTask(task,false);actions.append(view,restore,remove);row.append(info,actions);return row;
   }));
   if(!archiveItems.length) $("archive-list").append(element("p","此板块暂无归档任务。","archive-empty"));
   $("archive-more").hidden=archiveItems.length>=archiveTotal;
@@ -564,7 +566,8 @@ function showArchiveDetail(task) {
   if(taskContent(task))root.append(element("p",taskContent(task),"task-content"));
   if(task.course)root.append(element("p",task.course,"course"));
   for(const [key,label] of [["teacher","教师"],["week","教学周"],["period","节次"],["seat","座位"]])if(task.details?.[key])root.append(element("p",`${label} · ${task.details[key]}`,"event-detail"));
-  root.append(element("p",`完成时间 · ${formatTime(task.completed_at,true)}`,"task-time"));
+  if(task.completed_at)root.append(element("p",`完成时间 · ${formatTime(task.completed_at,true)}`,"task-time"));
+  root.append(element("p",`归档时间 · ${formatTime(task.archived_at,true)}`,"task-time"));
   if(task.todos.length) {const list=element("ul",null,"archive-todos");for(const todo of task.todos) list.append(element("li",`${todo.done?"☑":"☐"} ${todo.text}`));root.append(list);}
   const resources=element("div",null,"resources");resources.append(...task.attachments.map(file=>fileRow(file)));
   for(const link of task.links) {const row=element("div",null,"resource-row");row.append(externalLink(`${link.label || new URL(link.url).hostname} ↗`,link.url));resources.append(row);}
@@ -628,7 +631,7 @@ function renderWebsiteLinks() {
     const edit=element("button","编辑","text-button"),remove=element("button","移除","text-button");
     edit.type=remove.type="button";edit.disabled=remove.disabled=websiteBusy;
     edit.setAttribute("aria-label",`编辑网站：${websiteName(link)}`);remove.setAttribute("aria-label",`移除网站：${websiteName(link)}`);
-    edit.onclick=()=>openWebsiteInput(index);remove.onclick=()=>saveWebsiteLinks(sourceLinksState.filter((_,i)=>i!==index).map(link=>link.url));
+    edit.onclick=()=>openWebsiteInput(index);remove.onclick=()=>{if(confirm(`移除网站“${websiteName(link)}”？该网站的云端授权会删除，已导入任务保留。`))saveWebsiteLinks(sourceLinksState.filter((_,i)=>i!==index).map(link=>link.url));};
     row.append(text);
     if(link.generic){const setup=element("button","识别设置","secondary");setup.type="button";setup.setAttribute("aria-label",`识别设置：${link.name}`);setup.onclick=()=>setupGeneric(link).catch(error=>{$("source-error").textContent=error.message;});row.append(setup);}
     row.append(edit,remove);return row;
@@ -730,25 +733,16 @@ async function checkCloud() {
     updateSyncControls();renderSources();maybeLoginReminder();
   }catch(error){if(session!==syncSession || sequence!==cloudCheckSequence)return;$("cloud-status").textContent=error.message;$("cloud-grant-state").textContent="暂时无法读取授权状态，请重新打开此清单重试。";}
 }
-function needsLogin(source) {const state=cloudState?.sources?.[source.id];return cloudState?.enabled && (state?.error_code==="auth_expired" || !!state?.auth_expired_at);}
+function needsLogin(source) {
+  const state=cloudState?.sources?.[source.id];
+  return /(?:登录|登陆)(?:已)?(?:失效|过期)/.test(source.error || "") || !!(cloudState?.enabled && (state?.error_code==="auth_expired" || state?.auth_expired_at));
+}
 function sourceURL(source) {return sourceLinksState?.find(link=>link.source===source.id)?.url || source.url;}
 function loginLink(source) {
   const link=externalLink("重新登录 ↗",sourceURL(source));link.className="secondary source-login";
   link.setAttribute("aria-label",`重新登录：${source.name}`);return link;
 }
-function maybeLoginReminder() {
-  if($("workspace").hidden || document.hidden)return;
-  const expired=sources.filter(source=>needsLogin(source) && (sourceLinksState===null || sourceLinksState.some(link=>link.source===source.id)));
-  const key=source=>`${source.id}:${cloudState.sources[source.id].auth_expired_at || "expired"}`;
-  const dialog=$("login-expired-dialog");
-  if(!expired.length){if(dialog.open)dialog.close();return;}
-  if(!dialog.open && (document.querySelector("dialog[open]") || hasDraft() || !expired.some(source=>!loginRemindersSeen.has(key(source)))))return;
-  const signature=JSON.stringify(expired.map(source=>[key(source),sourceURL(source)]));
-  if(dialog.open && dialog.dataset.sources===signature)return;
-  dialog.dataset.sources=signature;
-  $("expired-sites").replaceChildren(...expired.map(source=>{const row=element("div",null,"expired-site");row.append(element("strong",source.name),loginLink(source));loginRemindersSeen.add(key(source));return row;}));
-  if(!dialog.open)dialog.showModal();
-}
+function maybeLoginReminder() { if(typeof maybeMessageBoard==="function")maybeMessageBoard(); }
 $("expired-open-sources").onclick=()=>{$("login-expired-dialog").close();$("sources-button").click();$("sources-list").scrollIntoView({block:"center"});};
 document.querySelectorAll("dialog").forEach(dialog=>dialog.addEventListener("close",()=>queueMicrotask(maybeLoginReminder)));
 $("cloud-revoke").onclick=async()=>{
@@ -894,7 +888,7 @@ const demoSteps=[
   {target:"#sources-button",title:"网站配置在这里",text:"点击侧栏的“来源与同步”，安装并连接同步扩展，就可以接入自己的校园网站。下一步带你查看配置位置。"},
   {target:"#add-source-link",sources:true,title:"一个网站，一条配置",text:"点击“添加网站”，粘贴需要同步的页面网址，再点确认。已适配平台直接同步；其他网站先授权读取，在原网页确认预览，识别不准时点选字段。每个平台旁的“同步”只读取该来源，“一键同步”读取全部来源。"},
   {target:"#cloud-authorize",sources:true,title:"云端同步：电脑关机也能更新",text:"在“来源与同步”第 4 步前往扩展授权，勾选同意后启用。登录凭据会加密保存在当前账号下，可随时关闭并删除。授权后回到第 5 步点击“一键同步”检查结果。微人大课表、考试、YOJ 及通用识别网站仍需电脑浏览器运行。"},
-  {target:"#archive-button",title:"完成后自动整理",text:"任务按完成时间倒序排列，完成满 7 天会进入归档处。你可以查看详情或删除，也可以随时点击“使用演示”重看这些说明。"}
+  {target:"#archive-button",title:"手动归档与消息",text:"点击任务卡片上的“归档”即可整理已处理的安排；归档后可查看、恢复或删除。消息看板集中展示提醒，侧栏可以联系管理员或查看公告。"}
 ];
 let demoIndex=0,demoOriginal=null;
 const demoKey=()=>`ruchecklist-demo:${boardAccount}`;
@@ -932,7 +926,7 @@ function endDemo() {
   if(demoOriginal){categoryFilter=demoOriginal.category;render();window.scrollTo({top:demoOriginal.scroll,behavior:"instant"});demoOriginal=null;}
   $("demo-button").focus({preventScroll:true});
 }
-function maybeDemo() {let seen=false;try{seen=localStorage.getItem(demoKey())==="seen";}catch{}if(!seen&&!document.querySelector("dialog[open]")&&!$("workspace").hidden)startDemo();}
+function maybeDemo() {if(typeof maybeMessageBoard==="function")maybeMessageBoard();let seen=false;try{seen=localStorage.getItem(demoKey())==="seen";}catch{}if(!seen&&!document.querySelector("dialog[open]")&&!$("workspace").hidden)startDemo();}
 $("demo-button").onclick=startDemo;$("demo-skip").onclick=endDemo;
 $("demo-next").onclick=()=>{if(demoIndex===demoSteps.length-1)endDemo();else{demoIndex++;showDemoStep();}};
 $("demo-prev").onclick=()=>{if(demoIndex){demoIndex--;showDemoStep();}};
@@ -953,7 +947,7 @@ function setAuthMode(mode) {
   $("login-error").textContent="";
 }
 function configureAccount(data) {
-  trialMode=!!data.trial;boardAccount=data.account || (trialMode?"":"personal");accountName=data.username || accountName;registrationOpen=!!data.registration_open;
+  trialMode=!!data.trial;isAdmin=!!data.admin;boardAccount=data.account || (trialMode?"":"personal");accountName=data.username || accountName;registrationOpen=!!data.registration_open;
   $("trial-auth").hidden=!trialMode;$("auth-recover").hidden=!trialMode;$("account-button").hidden=!trialMode;
   $("username").required=trialMode;$("password").minLength=trialMode?6:0;
   if(trialMode){setAuthMode("login");$("auth-register").disabled=!registrationOpen;$("trial-notice").hidden=registrationOpen;$("trial-notice").textContent=registrationOpen?"":"暂未开放新注册，已有账号可登录";$("file-limit-hint").textContent="单个文件 ≤ 1 MB · 每人 5 MB";}
@@ -967,7 +961,7 @@ $("download-recovery").onclick=()=>{
   const url=URL.createObjectURL(new Blob([`RUChecklist\n网站：${location.origin}\n用户名：${accountName}\n恢复码：${$("recovery-value").textContent}\n请勿分享此文件。\n`],{type:"text/plain;charset=utf-8"}));
   const link=element("a");link.href=url;link.download="RUChecklist-账号恢复码.txt";link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);$("recovery-done").disabled=false;
 };
-$("recovery-done").onclick=()=>{$("recovery-dialog").close();$("recovery-value").textContent="";maybeDemo();};
+$("recovery-done").onclick=()=>{$("recovery-dialog").close();$("recovery-value").textContent="";maybeMessageBoard();maybeDemo();};
 $("account-button").onclick=()=>{$("account-name").textContent=`用户名：${accountName}`;$("account-password").value="";$("account-error").textContent="";$("account-dialog").showModal();};
 $("recovery-form").onsubmit=async event=>{event.preventDefault();event.submitter.disabled=true;try{const result=await api("/api/recovery-code","POST",{password:$("account-password").value});$("account-password").value="";showRecovery(result.recovery);}catch(error){$("account-error").textContent=error.message;}finally{event.submitter.disabled=false;}};
 $("login-form").onsubmit = async event => {
@@ -975,8 +969,8 @@ $("login-form").onsubmit = async event => {
   try {
     const result=await api(trialMode?`/api/${authMode==="register"?"register":authMode==="recover"?"recover":"login"}`:"/api/login", "POST", {password: $("password").value,...(trialMode?{username:$("username").value,invite:$("invite-code").value.trim(),recovery:$("recovery-code").value.trim()}:{})},30000);
     $("password").value="";$("invite-code").value="";$("recovery-code").value="";
-    if(trialMode){boardAccount=result.account;accountName=result.username;}
-    await refresh();if(result.recovery)showRecovery(result.recovery);else maybeDemo();
+    if(trialMode){boardAccount=result.account;accountName=result.username;isAdmin=!!result.admin;}
+    await refresh();await startMessages();if(result.recovery)showRecovery(result.recovery);else maybeDemo();
   }
   catch (error) { $("login-error").textContent = error.message; }
   finally { button.disabled = false; }
@@ -989,6 +983,6 @@ setInterval(() => { if (!document.hidden && !$("workspace").hidden && !document.
 api("/api/session").then(async data => {
   configureAccount(data);
   if(!data.authenticated)return showLogin();
-  await refresh();
+  await refresh();await startMessages();
   if(sessionStorage.getItem("resume-setup")){sessionStorage.removeItem("resume-setup");$("sources-button").click();}else maybeDemo();
 }).catch(() => { showLogin(); $("login-error").textContent = "服务器暂时无法连接，请刷新重试"; });

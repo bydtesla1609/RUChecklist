@@ -6,7 +6,7 @@
   <meta name="description" content="作业、课程、考试、活动与会议，一处安排大学生活。">
   <title>RUChecklist</title>
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script>
+  <link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script><script src="/static/messages.js" defer></script>
 </head>
 <body>
 <section id="login" class="login" hidden>
@@ -23,11 +23,11 @@
   <aside class="sidebar">
     <a class="brand" href="/" aria-label="RUChecklist首页"><span class="brand-icon" aria-hidden="true"><img src="/static/icon.svg" alt="" width="56" height="56"></span><span class="wordmark"><b>RU</b>Checklist</span></a>
     <p class="nav-heading">我的任务</p><nav id="categories" aria-label="任务分类"></nav>
-    <div class="sidebar-bottom"><button id="demo-button" class="nav-button" aria-label="使用演示">▷ <span>使用演示</span></button><button id="archive-button" class="nav-button" aria-label="归档处">▤ <span>归档处</span></button><button id="sources-button" class="nav-button">↻ <span>来源与同步</span></button><button id="account-button" class="nav-button" hidden>⚙ <span>账号与恢复码</span></button><button id="logout" class="nav-button">↗ <span>退出登录</span></button></div>
+    <div class="sidebar-bottom"><button id="messages-button" class="nav-button">♧ <span>消息看板</span></button><button id="feedback-button" class="nav-button" hidden>◇ <span>与管理员反馈</span><small id="feedback-unread" hidden></small></button><button id="demo-button" class="nav-button" aria-label="使用演示">▷ <span>使用演示</span></button><button id="archive-button" class="nav-button" aria-label="归档处">▤ <span>归档处</span></button><button id="sources-button" class="nav-button">↻ <span>来源与同步</span></button><button id="account-button" class="nav-button" hidden>⚙ <span>账号与恢复码</span></button><button id="logout" class="nav-button">↗ <span>退出登录</span></button></div>
   </aside>
   <main>
     <section class="heading"><div><h1 id="view-title">总览</h1></div><div class="add-control"><button id="add-task" class="primary" aria-expanded="false"><span aria-hidden="true">＋</span> 添加任务</button><div id="add-menu" class="add-menu" hidden aria-label="选择任务板块"></div></div></section>
-    <section class="summary" aria-label="任务概况"><div><span>待完成</span><strong id="count-open">0</strong><small>按截止 / 结束时间从近到远</small><span class="stat-art" aria-hidden="true">◌</span></div><div><span>未来 7 天到期</span><strong id="count-soon">0</strong><small>按截止 / 结束时间从近到远</small><span class="stat-art" aria-hidden="true">↗</span></div><div><span>已逾期</span><strong id="count-overdue">0</strong><small>已过截止 / 结束时间，且尚未完成</small><span class="stat-art" aria-hidden="true">⌁</span></div><div><span>已完成</span><strong id="count-done">0</strong><small>按完成时间倒序，超过 7 天自动归档</small><span class="stat-art" aria-hidden="true">✓</span></div></section>
+    <section class="summary" aria-label="任务概况"><div><span>待完成</span><strong id="count-open">0</strong><small>按截止 / 结束时间从近到远</small><span class="stat-art" aria-hidden="true">◌</span></div><div><span>未来 7 天到期</span><strong id="count-soon">0</strong><small>按截止 / 结束时间从近到远</small><span class="stat-art" aria-hidden="true">↗</span></div><div><span>已逾期</span><strong id="count-overdue">0</strong><small>已过截止 / 结束时间，且尚未完成</small><span class="stat-art" aria-hidden="true">⌁</span></div><div><span>已完成</span><strong id="count-done">0</strong><small>按完成时间倒序，可手动归档</small><span class="stat-art" aria-hidden="true">✓</span></div></section>
     <div id="board-caption" class="board-caption"><h2>任务看板</h2></div>
     <div id="board" class="board" aria-live="polite"></div>
     <p id="load-error" class="error" role="alert"></p>
@@ -77,6 +77,19 @@
   <section class="guide-step"><h3><span class="step-number">5</span>同步并检查结果</h3><div class="step-body"><div class="sync-toolbar"><p id="cloud-status" class="muted" role="status">正在检查同步状态…</p><button id="collector-scan" class="primary" disabled>一键同步</button></div><p id="sync-mode-note" class="hint"></p><div id="sources-list"></div><div id="unsupported-links"></div></div></section>
   <p id="source-error" class="error" role="alert"></p>
 </dialog>
+<dialog id="messages-dialog" aria-labelledby="messages-title">
+  <div class="dialog-heading"><h2 id="messages-title">消息看板</h2><button class="icon-button close-dialog" aria-label="关闭消息看板">×</button></div>
+  <p class="hint">更新、网站登录状态和近期安排，集中查看。</p><div id="messages-content"></div><p id="messages-error" class="error" role="alert"></p>
+  <div class="dialog-actions"><button id="messages-read" class="primary">已读并关闭</button></div>
+</dialog>
+<dialog id="feedback-dialog" aria-labelledby="feedback-title">
+  <div class="dialog-heading"><h2 id="feedback-title">与管理员反馈</h2><button class="icon-button close-dialog" aria-label="关闭聊天">×</button></div>
+  <div class="chat-layout"><nav id="chat-threads" aria-label="消息会话"></nav><section class="chat-main">
+    <header class="chat-header"><button id="chat-back" class="text-button" aria-label="返回会话列表">‹ 返回</button><strong id="chat-name">管理员</strong><span id="chat-state" role="status"></span></header>
+    <div id="chat-history" class="chat-history" tabindex="0" aria-label="聊天记录"><button id="chat-older" class="text-button" hidden>查看更早消息</button><div id="chat-bubbles"></div></div>
+    <p id="chat-error" class="error" role="alert"></p><form id="chat-form"><label class="sr-only" for="chat-input">消息内容</label><textarea id="chat-input" rows="2" maxlength="2000" placeholder="反馈建议、遇到的问题，或补充说明…" required></textarea><button id="chat-send" type="submit" class="primary">发送</button></form>
+  </section></div>
+</dialog>
 <dialog id="login-expired-dialog" aria-labelledby="login-expired-title" aria-describedby="login-expired-description">
   <div class="dialog-heading"><h2 id="login-expired-title">以下网站登录已过期</h2><button class="icon-button close-dialog" aria-label="稍后重新登录">×</button></div>
   <p id="login-expired-description" class="hint">点击跳转并重新登录。请在已连接扩展的电脑浏览器完成登录、打开需要同步的页面，再回来看板同步。</p>
@@ -86,7 +99,7 @@
 </dialog>
 <dialog id="archive-dialog">
   <div class="dialog-heading"><div><h2>归档处</h2></div><button class="icon-button close-dialog" aria-label="关闭归档">×</button></div>
-  <p class="muted">完成满 7 天的任务自动移入这里，保留原始时间和全部详细信息。</p>
+  <p class="muted">手动归档的任务保留原始时间和详细信息，可随时恢复到看板。</p>
   <nav id="archive-categories" class="archive-categories" aria-label="归档分类"></nav>
   <div id="archive-list"></div><p id="archive-error" class="error" role="alert"></p>
   <button id="archive-more" class="secondary" hidden>加载更多</button>

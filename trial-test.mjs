@@ -70,7 +70,7 @@ if(!process.env.TRIAL_UI_FIXTURE) test("trial accounts enforce invitations, isol
     assert.equal((await anonymous.api("/api/board","GET",undefined,{Authorization:`Bearer ${ta}`})).status,401);
     assert.equal((await anonymous.api("/api/collector-config","GET",undefined,{Authorization:`Bearer ${ta}`})).data.account,registered.data.account);
     assert.equal((await b.api("/api/academic/snapshot")).data,null);
-    db.prepare("UPDATE u1_tasks SET status='done',completed_at='2026-01-01T00:00:00Z' WHERE id=?").run(task.id);
+    db.prepare("UPDATE u1_tasks SET status='done',completed_at='2026-01-01T00:00:00Z',archived_at='2026-01-09T00:00:00Z' WHERE id=?").run(task.id);
     assert.equal((await a.api("/api/archive")).data.total,1);assert.equal((await b.api("/api/archive")).data.total,0);
     assert.equal((await a.api("/api/cloud")).data.enabled,false);assert.equal((await a.api("/api/cloud-authorize","POST",{})).status,401);
     const renewal=(await a.api("/api/collector-token","POST",{})).data.token;

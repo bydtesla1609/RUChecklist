@@ -1,6 +1,7 @@
 import board,{digest,applyImport,SOURCES} from "./worker.mjs";
 import {partition} from "./trial-schema.mjs";
 import {runCloud} from "./cloud.mjs";
+import {community} from "./community.mjs";
 const userEnvironment=(env,user)=>({...env,DB:partition(env.DB,user.slot),BOARD_PASSWORD_HASH:"trial-authenticated",SOURCE_URLS:"{}",TRIAL_MODE:true,TRIAL_USER:user.id});
 export async function runTrialCloud(env,scheduledTime=Date.now(),options={}) {
   // One account per minute keeps the free pilot bounded; each slot runs every 30 minutes.
@@ -51,7 +52,7 @@ const authEmail=user=>`u-${user.id}@accounts.ruchecklist.invalid`;
 async function createSession(db,user,extra={}) {
   const token=random();
   await db.batch([db.prepare("DELETE FROM trial_sessions WHERE expires<?").bind(Date.now()),db.prepare("DELETE FROM trial_attempts WHERE since<?").bind(Date.now()-86400000),db.prepare("INSERT INTO trial_sessions(hash,user_id,expires) VALUES (?,?,?)").bind(await digest(token),user.id,Date.now()+14*86400000)]);
-  return json({ok:true,account:user.id,username:user.username,...extra},200,{"Set-Cookie":sessionCookie(token)});
+  return json({ok:true,account:user.id,username:user.username,admin:user.slot===1,...extra},200,{"Set-Cookie":sessionCookie(token)});
 }
 async function route(request,env) {
   const url=new URL(request.url),path=url.pathname,method=request.method,db=env.DB;
@@ -62,7 +63,7 @@ async function route(request,env) {
   const token=(request.headers.get("Cookie") || "").split(";").map(s=>s.trim()).find(s=>s.startsWith("trial_session="))?.slice(14) || "";
   const hash=await digest(token);
   const session=token?await db.prepare("SELECT u.* FROM trial_users u JOIN trial_sessions s ON s.user_id=u.id WHERE s.hash=? AND s.expires>? AND u.status='active'").bind(hash,Date.now()).first():null;
-  if(path==="/api/session" && method==="GET")return json({trial:true,authenticated:!!session,account:session?.id || null,username:session?.username || null,registration_open:env.REGISTRATION_OPEN==="true" && !!env.SUPABASE_URL && !!env.SUPABASE_SERVICE_ROLE_KEY});
+  if(path==="/api/session" && method==="GET")return json({trial:true,authenticated:!!session,account:session?.id || null,username:session?.username || null,admin:session?.slot===1,registration_open:env.REGISTRATION_OPEN==="true" && !!env.SUPABASE_URL && !!env.SUPABASE_SERVICE_ROLE_KEY});
   if(["/api/register","/api/login","/api/recover"].includes(path) && method==="POST") {
     const data=await body(request),{username,password}=credentials(data,path!=="/api/login");
     await limit(db,`ip:${await digest(request.headers.get("CF-Connecting-IP") || "local")}`,60);
@@ -117,6 +118,7 @@ async function route(request,env) {
     user=bearer?await db.prepare("SELECT u.* FROM trial_users u JOIN trial_collectors c ON c.user_id=u.id WHERE c.hash=? AND u.status='active'").bind(await digest(bearer)).first():null;
   }
   if(!user)fail(401,"请先登录自己的账号，或重新连接扩展");
+  if(path.startsWith("/api/feedback/") || path.startsWith("/api/announcements"))return community(request,env,user,{body,limit});
   if(path==="/api/recovery-code" && method==="POST") {
     await limit(db,`recovery:${user.id}`,5);const data=await body(request);
     const {password}=credentials({...data,username:user.username});
