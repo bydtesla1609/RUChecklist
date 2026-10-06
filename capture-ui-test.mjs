@@ -48,10 +48,10 @@ try {
   assert.equal(await page.title(),"RUCapture");
   assert.equal(await category(page,"课程").count(),0);assert.equal(await category(page,"记录").count(),1);
   assert.equal(await page.locator('.nav-heading,#board-caption').count(),0);
-  const initialY=await page.locator('.brand-icon').first().evaluate(n=>n.getBoundingClientRect().y);
+  const initialY=await page.locator('.brand-icon').first().evaluate(n=>n.getBoundingClientRect().y),initialIconX=await page.locator('#categories .nav-icon').first().evaluate(n=>n.getBoundingClientRect().x);
   const toggleBox=await page.locator('#sidebar-toggle').boundingBox(),brandBox=await page.locator('.brand-icon').first().boundingBox();assert.ok(toggleBox.x>brandBox.x);
   await page.locator('#sidebar-toggle').click();
-  for(let frame=0;frame<8;frame++){await page.waitForTimeout(35);assert.ok(Math.abs(await page.locator('.brand-icon').first().evaluate(n=>n.getBoundingClientRect().y)-initialY)<1,'brand has no vertical jump');}
+  for(let frame=0;frame<8;frame++){await page.waitForTimeout(35);assert.ok(Math.abs(await page.locator('.brand-icon').first().evaluate(n=>n.getBoundingClientRect().y)-initialY)<1,'brand has no vertical jump');const iconX=await page.locator('#categories .nav-icon').first().evaluate(n=>n.getBoundingClientRect().x);assert.ok(iconX>=initialIconX-1 && iconX<=initialIconX+10,'navigation icon follows its short horizontal path');}
   await page.waitForTimeout(100);
   assert.equal(await page.locator('#workspace').evaluate(n=>n.classList.contains('sidebar-collapsed')),true);
   assert.ok((await page.locator('.sidebar').boundingBox()).width<100);
