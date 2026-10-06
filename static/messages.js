@@ -27,7 +27,7 @@ async function startMessages(){
 function expiredSources(){return sources.filter(s=>needsLogin(s)&&(sourceLinksState===null||sourceLinksState.some(l=>l.source===s.id)));}
 function soonTasks(){
   const now=Date.now(),end=now+7*86400000;
-  return tasks.filter(t=>t.category!=="课程" && t.status!=="done" && !t.archived_at && Date.parse(t.category==="作业"?t.due_at:t.starts_at)>=now && Date.parse(t.category==="作业"?t.due_at:t.starts_at)<=end)
+  return tasks.filter(t=>!["课程","记录"].includes(t.category) && t.status!=="done" && !t.archived_at && Date.parse(t.category==="作业"?t.due_at:t.starts_at)>=now && Date.parse(t.category==="作业"?t.due_at:t.starts_at)<=end)
     .sort((a,b)=>Date.parse(a.category==="作业"?a.due_at:a.starts_at)-Date.parse(b.category==="作业"?b.due_at:b.starts_at));
 }
 function unreadAnnouncements(){return (announcementState?.announcements || []).filter(a=>a.id>(announcementState?.last_read || 0));}

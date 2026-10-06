@@ -39,16 +39,16 @@ async function allSources(env) {
   for(const link of await savedLinks(env))if(link.generic && !sources[link.source])sources[link.source]={name:link.name,url:link.url,browser_only:true,generic:true};
   return sources;
 }
-const CATEGORIES = ["作业", "课程", "考试", "活动", "会议"];
+const CATEGORIES = ["作业", "课程", "考试", "活动", "会议", "记录"];
 const STATUSES = ["todo", "doing", "done"];
-const FIELDS = ["category", "title", "content", "location", "todos", "links", "attachments", "due_at", "starts_at", "ends_at", "status", "details"];
+const FIELDS = ["category", "title", "content", "location", "todos", "links", "attachments", "due_at", "starts_at", "ends_at", "status", "details", "axis_id"];
 const stored = (task, field) => ["todos","links","attachments","details"].includes(field) ? JSON.stringify(task[field]) : task[field];
 const FILE_LIMIT=10*1024*1024, STORAGE_LIMIT=100*1024*1024, CHUNK_SIZE=512*1024;
 const now = () => new Date().toISOString();
-export const RELEASE={version:"2.15.0",title:"课程统计、归档与账户菜单优化",items:["课程不再计入任务统计，继续按课表和日历展示","保留手动归档，恢复完成满 7 天自动归档","消息、反馈、归档和账号设置统一收进账户菜单","新增页面切换动效、轻光影与版本标识"]};
+export const RELEASE={version:"3.0.0",title:"RUCapture · 记录与规划",items:["新增记录卡片，与安排一起显示在总览","总览支持日历与轴线视图；卡片可归轴、离轴，按时间排列","轴线画布支持拖动、缩放和节点调整","新增可折叠侧栏；课程继续导入并显示在总览","统一卡片操作区，优化待办勾选反馈"]};
 export async function autoArchive(db,time=Date.now()) {
   const stamp=new Date(time).toISOString(),cutoff=new Date(time-7*86400000).toISOString();
-  return db.prepare("UPDATE tasks SET archived_at=?,updated_at=?,revision=revision+1 WHERE deleted=0 AND archived_at IS NULL AND category<>'课程' AND status='done' AND datetime(completed_at)<=datetime(?) AND (archive_restored_at IS NULL OR datetime(archive_restored_at)<=datetime(?))").bind(stamp,stamp,cutoff,cutoff).run();
+  return db.prepare("UPDATE tasks SET archived_at=?,updated_at=?,revision=revision+1 WHERE deleted=0 AND archived_at IS NULL AND category NOT IN ('课程','记录') AND status='done' AND datetime(completed_at)<=datetime(?) AND (archive_restored_at IS NULL OR datetime(archive_restored_at)<=datetime(?))").bind(stamp,stamp,cutoff,cutoff).run();
 }
 const completedAt = (status,previous,stamp) => status==="done" ? (previous?.status==="done" && previous.completed_at ? previous.completed_at : stamp) : null;
 const randomToken = () => [...crypto.getRandomValues(new Uint8Array(24))].map(b => b.toString(16).padStart(2,"0")).join("");
@@ -132,7 +132,9 @@ export function validate(value, imported=false) {
   const homework=category==="作业";
   const due_at=homework ? dateValue(value.due_at,"截止时间",!imported) : null;
   const starts_at=!homework ? dateValue(value.starts_at,"开始时间",true) : null;
-  const ends_at=!homework ? dateValue(value.ends_at,"结束时间",true) : null;
+  const ends_at=!homework ? (category==="记录" ? starts_at : dateValue(value.ends_at,"结束时间",true)) : null;
+  const axis_id=value.axis_id ?? null;
+  if(axis_id!==null && (typeof axis_id!=="string" || !/^[a-zA-Z0-9-]{1,50}$/.test(axis_id)))fail(400,"归轴信息不正确");
   if(starts_at && starts_at>ends_at) fail(400,"结束时间不能早于开始时间");
   if(value.details!=null && (typeof value.details!=="object" || Array.isArray(value.details))) fail(400,"日程信息格式不正确");
   const details={};
@@ -140,7 +142,15 @@ export function validate(value, imported=false) {
     const text=value.details?.[name];if(text===undefined)continue;
     if(typeof text!=="string" || text.length>300) fail(400,"日程信息最多 300 字");details[name]=text.trim();
   }
-  return {category,title:title.trim(),content:content.trim(),location:location.trim(),todos:checklist,links,attachments,due_at,starts_at,ends_at,status:category==="课程"?"todo":category!=="作业" && status==="doing"?"todo":status,details};
+  return {category,title:title.trim(),content:content.trim(),location:location.trim(),todos:checklist,links,attachments,due_at,starts_at,ends_at,axis_id,status:["课程","记录"].includes(category)?"todo":category!=="作业" && status==="doing"?"todo":status,details};
+}
+function validateAxis(value) {
+  const {title,content=""}=value;
+  if(typeof title!=="string" || !title.trim() || title.length>200)fail(400,"轴线标题限 1–200 字");
+  if(typeof content!=="string" || content.length>10000)fail(400,"内容最多 10000 字");
+  const starts_at=dateValue(value.starts_at,"开始时间"),ends_at=dateValue(value.ends_at,"结束时间");
+  if(starts_at && ends_at && starts_at>ends_at)fail(400,"结束时间不能早于开始时间");
+  return {title:title.trim(),content:content.trim(),starts_at,ends_at};
 }
 async function collectorAuth(request,db) {
   const token=request.headers.get("Authorization")?.match(/^Bearer ([A-Za-z0-9_-]{20,100})$/)?.[1];
@@ -295,7 +305,7 @@ async function route(request, env) {
   const url=new URL(request.url), path=url.pathname, method=request.method, db=env.DB;
   if(!path.startsWith("/api/")) {
     if(method!=="GET" && method!=="HEAD") fail(405,"不支持此操作");
-    if(path!=="/" && !["/static/app.js","/static/messages.js","/static/style.css","/static/icon.svg","/extension.zip"].includes(path)) fail(404,"页面不存在");
+    if(path!=="/" && !["/static/app.js","/static/capture.js","/static/axis-layout.js","/static/messages.js","/static/style.css","/static/icon.svg","/extension.zip"].includes(path)) fail(404,"页面不存在");
     const assetURL=new URL(request.url); assetURL.pathname=path.replace(/^\/static\//,"/");
     return env.ASSETS.fetch(new Request(assetURL,request));
   }
@@ -377,7 +387,9 @@ async function route(request, env) {
     const configuration=await allSources(env);
     const byId=new Map(files.results.map(file=>[file.id,file]));
     const tables=await db.prepare("SELECT value FROM settings WHERE key LIKE 'timetable:%'").all();
-    return json({tasks:tasks.results.map(task=>expose(task,byId)),timetables:tables.results.map(row=>JSON.parse(row.value)),sources:Object.entries(configuration).map(([id,config])=>({id,last_seen:null,task_count:0,imported_count:0,status_count:0,...sources.results.find(source=>source.id===id),...config})),storage:{used:storage.results[0].used,limit:env.TRIAL_MODE?5*1024*1024:STORAGE_LIMIT,file_limit:env.TRIAL_MODE?1024*1024:FILE_LIMIT},server_time:now()});
+    const axes=await db.prepare("SELECT * FROM axes WHERE deleted=0 ORDER BY created_at,id").all();
+    const axisItems=await db.prepare("SELECT * FROM tasks WHERE deleted=0 AND axis_id IN (SELECT id FROM axes WHERE deleted=0)").all();
+    return json({axes:axes.results,axis_items:axisItems.results.map(task=>expose(task,byId)),tasks:tasks.results.map(task=>expose(task,byId)),timetables:tables.results.map(row=>JSON.parse(row.value)),sources:Object.entries(configuration).map(([id,config])=>({id,last_seen:null,task_count:0,imported_count:0,status_count:0,...sources.results.find(source=>source.id===id),...config})),storage:{used:storage.results[0].used,limit:env.TRIAL_MODE?5*1024*1024:STORAGE_LIMIT,file_limit:env.TRIAL_MODE?1024*1024:FILE_LIMIT},server_time:now()});
   }
   if(path==="/api/archive" && method==="GET") {
     await autoArchive(db);
@@ -397,9 +409,30 @@ async function route(request, env) {
     await db.prepare("INSERT INTO settings(key,value) VALUES ('collector_hash',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(await digest(token)).run();
     return json({token});
   }
+  if(path==="/api/axes" && method==="POST") {
+    const data=validateAxis(await body(request)),stamp=now(),id=crypto.randomUUID();
+    const row=await db.prepare("INSERT INTO axes(id,title,content,starts_at,ends_at,created_at,updated_at) SELECT ?,?,?,?,?,?,? WHERE (SELECT count(*) FROM axes WHERE deleted=0)<100 RETURNING *").bind(id,data.title,data.content,data.starts_at,data.ends_at,stamp,stamp).first();
+    if(!row)fail(400,"最多保留 100 条轴线");return json(row,201);
+  }
+  const axisMatch=path.match(/^\/api\/axes\/([a-zA-Z0-9-]{1,50})$/);
+  if(axisMatch && ["PATCH","DELETE"].includes(method)) {
+    const data=await body(request),id=axisMatch[1],stamp=now();
+    if(!Number.isInteger(data.revision))fail(400,"缺少轴线版本");
+    if(method==="DELETE") {
+      const result=await db.batch([
+        db.prepare("UPDATE tasks SET axis_id=NULL,revision=revision+1,updated_at=? WHERE axis_id=? AND EXISTS(SELECT 1 FROM axes WHERE id=? AND revision=? AND deleted=0)").bind(stamp,id,id,data.revision),
+        db.prepare("UPDATE axes SET deleted=1,revision=revision+1,updated_at=? WHERE id=? AND revision=? AND deleted=0").bind(stamp,id,data.revision)
+      ]);
+      if(result[1].meta.changes!==1)fail(409,"轴线已更新，请重新打开");return json({ok:true});
+    }
+    const axis=validateAxis(data);
+    const row=await db.prepare("UPDATE axes SET title=?,content=?,starts_at=?,ends_at=?,revision=revision+1,updated_at=? WHERE id=? AND revision=? AND deleted=0 RETURNING *").bind(axis.title,axis.content,axis.starts_at,axis.ends_at,stamp,id,data.revision).first();
+    if(!row)fail(409,"轴线已更新，请重新打开");return json(row);
+  }
   if(path==="/api/tasks" && method==="POST") {
     const task=validate(await body(request)), id=crypto.randomUUID(), stamp=now();
     await fileReferences(task.attachments,db);
+    if(task.axis_id && !await db.prepare("SELECT 1 FROM axes WHERE id=? AND deleted=0").bind(task.axis_id).first())fail(400,"轴线不存在，请重新选择");
     const row=await db.prepare(`INSERT INTO tasks(id,${FIELDS.join(",")},created_at,updated_at,completed_at)
       VALUES (${Array(FIELDS.length+4).fill("?").join(",")}) RETURNING *`).bind(id,...FIELDS.map(f=>stored(task,f)),stamp,stamp,completedAt(task.status,null,stamp)).first();
     return json(await withFiles(row,db),201);
@@ -433,6 +466,7 @@ async function route(request, env) {
     if(Object.hasOwn(editable,"title") && !Object.hasOwn(editable,"content") && previous.content===previous.title)editable.content=editable.title;
     const task=validate({...expose(previous),...editable},!!previous.source);
     await fileReferences(task.attachments,db);
+    if(task.axis_id && !await db.prepare("SELECT 1 FROM axes WHERE id=? AND deleted=0").bind(task.axis_id).first())fail(400,"轴线不存在，请重新选择");
     const overrides=[...new Set([...JSON.parse(previous.overrides),...Object.keys(editable).filter(f=>stored(task,f)!==previous[f])])];
     const updated=await db.prepare(`UPDATE tasks SET ${FIELDS.map(f=>`${f}=?`).join(",")},overrides=?,revision=revision+1,updated_at=?,completed_at=?
       WHERE id=? AND revision=? AND deleted=0 RETURNING *`).bind(...FIELDS.map(f=>stored(task,f)),JSON.stringify(overrides),now(),completedAt(task.status,previous,now()),id,data.revision).first();

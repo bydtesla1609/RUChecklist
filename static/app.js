@@ -1,6 +1,8 @@
 "use strict";
 const $ = id => document.getElementById(id);
-const CATEGORIES = ["作业", "课程", "考试", "活动", "会议"];
+const CATEGORIES = ["作业", "课程", "考试", "活动", "会议", "记录"];
+const NAV_CATEGORIES=CATEGORIES.filter(category=>category!=="课程");
+let axes=[],axisItems=[],overviewView="calendar",newTaskAxis=null,newTaskCategory=null;
 const STATES = {todo: "待开始", doing: "进行中", done: "已完成"};
 let tasks = [], sources = [], categoryFilter = "全部", editing = null, deleting = null;
 let refreshSequence = 0, lastPayload = "", toastTimer, taskCategory = "作业", draftTodos = [];
@@ -47,7 +49,7 @@ function showLogin() {
   $("workspace").hidden = true;
   $("login").hidden = false;
   document.querySelectorAll("dialog[open]").forEach(dialog => dialog.close());
-  tasks = []; sources = []; timetables=[]; archiveItems=[]; lastPayload = "";
+  tasks = []; axes=[];axisItems=[];resetAxisScene();sources = []; timetables=[]; archiveItems=[]; lastPayload = "";
   $("archive-list").replaceChildren(); $("archive-detail").replaceChildren();
   $("board").replaceChildren(); $("sources-list").replaceChildren(); collectorState=null; cloudState=null;
   sourceLinksState=null;if(trialMode)boardAccount="";
@@ -121,7 +123,7 @@ $("task-dialog").addEventListener("cancel",event=>{if(uploading) event.preventDe
 function hasDraft() { return !!document.querySelector("#board [data-dirty], #board [data-busy], #board .dragging, #course-detail [data-dirty], #course-detail [data-busy], #course-detail .dragging"); }
 function checklist(initial, persist, inDialog = false) {
   const root = element("div", null, "checklist");
-  let items = structuredClone(initial), saved = structuredClone(initial), editingId = null, adding = "";
+  let items = structuredClone(initial), saved = structuredClone(initial), editingId = null, adding = "", pendingCommit=false;
   const list = element("div", null, "todo-list"), progress = element("span", null, "checklist-count");
   const error = element("p", "", "error checklist-error"); error.setAttribute("role", "alert");
   const recovery = element("div", null, "checklist-recovery"); recovery.hidden = true;
@@ -146,13 +148,14 @@ function checklist(initial, persist, inDialog = false) {
     if (editingId || adding || JSON.stringify(items) !== JSON.stringify(saved)) root.dataset.dirty = "true";
     else delete root.dataset.dirty;
   }
-  async function commit() {
-    if (root.dataset.busy) return;
+  async function commit(quiet=false) {
+    if (root.dataset.busy) {if(quiet)pendingCommit=true;return;}
+    const submitted=structuredClone(items);let succeeded=false;
     markDirty(); root.dataset.busy = "true"; error.textContent = ""; recovery.hidden = true;
-    root.querySelectorAll("button,input").forEach(node => node.disabled = true);
-    try { await persist(structuredClone(items)); saved = structuredClone(items); }
+    root.setAttribute("aria-busy","true");
+    try { await persist(submitted); saved = submitted;succeeded=true; }
     catch (failure) { error.textContent = `${failure.message}。草稿已保留。`; recovery.hidden = false; retry.disabled = failure.status === 409; }
-    finally { delete root.dataset.busy; draw(); markDirty(); }
+    finally { delete root.dataset.busy;root.removeAttribute("aria-busy");if(pendingCommit && succeeded){pendingCommit=false;await commit(true);}else{pendingCommit=false;draw();markDirty();} }
   }
   function draw() {
     progress.textContent = `待办事项 · ${items.filter(item => item.done).length} / ${items.length}`;
@@ -223,7 +226,7 @@ function checklist(initial, persist, inDialog = false) {
       handle.onpointerup = () => finishDrag(true);
       handle.onpointercancel = handle.onlostpointercapture = () => finishDrag(false);
       const check = element("input"); check.type = "checkbox"; check.checked = item.done; check.setAttribute("aria-label", `完成：${item.text}`);
-      check.onchange = () => { item.done = check.checked; commit(); };
+      check.onchange = () => { item.done = check.checked;row.classList.toggle("checked",item.done);progress.textContent=`待办事项 · ${items.filter(value=>value.done).length} / ${items.length}`;commit(true); };
       row.append(handle, check);
       if (editingId === item.id) {
         handle.disabled = check.disabled = true;
@@ -238,9 +241,9 @@ function checklist(initial, persist, inDialog = false) {
       } else {
         const text = element("button", item.text, "todo-text"); text.type = "button"; text.title = "点击编辑";
         text.setAttribute("aria-label", `编辑待办：${item.text}`);
-        text.onclick = () => { editingId = item.id; draw(); markDirty(); list.querySelector(".todo-edit").focus(); };
+        text.onclick = () => { if(root.dataset.busy)return;editingId = item.id; draw(); markDirty(); list.querySelector(".todo-edit").focus(); };
         const remove = element("button", "×", "todo-action"); remove.type = "button"; remove.setAttribute("aria-label", `删除待办：${item.text}`);
-        remove.onclick = () => { if(!confirm(`删除待办“${item.text}”？`))return; items = items.filter(value => value.id !== item.id); commit(); };
+        remove.onclick = () => { if(root.dataset.busy)return;if(!confirm(`删除待办“${item.text}”？`))return; items = items.filter(value => value.id !== item.id); commit(); };
         row.append(text, remove);
       }
       if (editingId && editingId !== item.id) row.querySelectorAll("button,input").forEach(node => node.disabled = true);
@@ -258,6 +261,7 @@ function navigationIcon(category) {
     "课程":"M3 5c3-1 6-1 9 1 3-2 6-2 9-1v14c-3-1-6-1-9 1-3-2-6-2-9-1z M12 6v14",
     "考试":"M8 3h8 M12 3v3 M18 6l2-2 M12 10v5l3 2 M21 15a9 9 0 1 1-18 0 9 9 0 0 1 18 0",
     "活动":"m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z",
+    "记录":"M4 3h12l4 4v14H4z M8 10h8 M8 14h8 M8 18h5",
     "会议":"M15 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0 M5 21v-2a7 7 0 0 1 14 0v2 M19 7a3 3 0 0 1 0 6 M22 20v-2a5 5 0 0 0-3-4",
     "消息":"M18 8a6 6 0 0 0-12 0v5l-2 4h16l-2-4z M10 21h4",
     "反馈":"M4 4h16v12H9l-5 4z M8 8h8 M8 12h5",
@@ -300,11 +304,11 @@ $("user-menu").addEventListener("click",event=>{if(event.target.closest("button"
 window.addEventListener("resize",positionUserMenu);document.addEventListener("scroll",positionUserMenu,true);
 for(const [id,icon] of [["demo-button","演示"],["sources-button","同步"],["messages-button","消息"],["feedback-button","反馈"],["archive-button","归档"],["account-button","账户"],["logout","退出"]])$(id).prepend(navigationIcon(icon));
 function renderNavigation() {
-  $("categories").replaceChildren(...["全部", ...CATEGORIES].map(category => {
+  $("categories").replaceChildren(...["全部", ...NAV_CATEGORIES].map(category => {
     const button = element("button", null, "nav-button" + (categoryFilter === category ? " active" : ""));
-    button.setAttribute("aria-pressed", String(categoryFilter === category));
+    button.setAttribute("aria-pressed", String(categoryFilter === category));button.title=category==="全部"?"总览":category;button.setAttribute("aria-label",button.title);
     button.append(navigationIcon(category), element("span", category === "全部" ? "总览" : category),
-      element("span", String(tasks.filter(t => category==="课程"?t.category==="课程":t.category!=="课程" && t.status !== "done" && (category === "全部" || t.category === category)).length), "count"));
+      element("span", String(tasks.filter(t => category==="记录"?t.category==="记录":!["课程","记录"].includes(t.category) && t.status !== "done" && (category === "全部" || t.category === category)).length), "count"));
     button.onclick = () => { if (hasDraft()) { notice("请先保存或取消正在编辑的待办事项"); return; } const changed=categoryFilter!==category;categoryFilter = category; closeAddMenu(); render();if(changed)animateView(); };
     return button;
   }));
@@ -314,6 +318,7 @@ function taskContent(task) {
   return [content,task?.details?.organizer?`组织者 / 主持人：${task.details.organizer}`:""].filter(Boolean).join("\n");
 }
 function timeRange(task) {
+  if(task.category==="记录")return formatTime(task.starts_at,true);
   const start=localInput(task.starts_at),end=localInput(task.ends_at);
   return `${formatTime(task.starts_at,start.slice(0,4)!==end.slice(0,4))} – ${start.slice(0,10)===end.slice(0,10)?end.slice(11):formatTime(task.ends_at,start.slice(0,4)!==end.slice(0,4))}`;
 }
@@ -337,7 +342,7 @@ function card(task) {
   const isOverdue = task.category === "作业" && task.status !== "done" && deadline(task) && new Date(deadline(task)) < new Date();
   const time = element("div", null, "task-time" + (isOverdue ? " overdue" : ""));
   const completedHomework=task.category==="作业" && task.status==="done";
-  time.append(element("p", (isOverdue ? "已逾期 · " : "") + (completedHomework ? "完成时间" : task.category === "作业" ? "截止时间" : "起止时间"), "time-label"));
+  time.append(element("p", (isOverdue ? "已逾期 · " : "") + (completedHomework ? "完成时间" : task.category === "作业" ? "截止时间" : task.category==="记录"?"时间":"起止时间"), "time-label"));
   if (task.category === "作业") time.append(element("p", formatTime(completedHomework ? task.completed_at : task.due_at, true)));
   else time.append(element("p", timeRange(task), "time-range"));
   article.append(time);
@@ -368,8 +373,8 @@ function card(task) {
     }
   };
   if(task.category==="作业")footer.append(status);
-  else if(task.category!=="课程") {const label=element("label",null,"completion-control");label.append(status,document.createTextNode("已完成"));footer.append(label);}
-  const original=taskSourceLink(task);if(original)footer.append(original);
+  else if(!["课程","记录"].includes(task.category)) {const label=element("label",null,"completion-control");label.append(status,document.createTextNode("已完成"));footer.append(label);}
+  const footerMain=element("div",null,"task-footer-main");footerMain.append(...footer.childNodes);const original=taskSourceLink(task);if(original)footerMain.append(original);footer.append(footerMain);
   const actions = element("div", null, "task-actions");
   const edit = element("button", "编辑", "edit-task");
   edit.type = "button";
@@ -398,13 +403,14 @@ function card(task) {
   return article;
 }
 function render() {
+  queueMicrotask(()=>document.querySelectorAll("select:not([data-enhanced])").forEach(enhanceSelect));
   renderNavigation();
-  document.querySelector(".summary").hidden=categoryFilter==="课程";
+  document.querySelector(".summary").hidden=categoryFilter==="记录";
   document.querySelector(".summary").removeAttribute("data-schedule");
   const visible = tasks.filter(t => categoryFilter === "全部" || categoryFilter === t.category);
   $("view-title").textContent = categoryFilter === "全部" ? "总览" : categoryFilter;
-  $("add-task").textContent = categoryFilter === "全部" ? "＋ 添加任务" : `＋ 添加${categoryFilter}`;
-  const taskItems=visible.filter(t=>t.category!=="课程"),open = taskItems.filter(t => t.status !== "done");
+  $("add-task").textContent = categoryFilter === "全部" ? "＋ 添加卡片" : `＋ 添加${categoryFilter}`;
+  const taskItems=visible.filter(t=>!["课程","记录"].includes(t.category)),open = taskItems.filter(t => t.status !== "done");
   $("count-open").textContent = open.length;
   $("count-done").textContent = taskItems.length - open.length;
   const current = Date.now();
@@ -415,8 +421,10 @@ function render() {
     node.querySelector("span").textContent=["待完成","未来 7 天到期","已逾期","已完成"][index];
     node.querySelector("small").textContent=["按截止 / 结束时间从近到远","按截止 / 结束时间从近到远","已过截止 / 结束时间，且尚未完成","按完成时间倒序 · 满 7 天自动归档"][index];
   });
-  $("board-caption").hidden=categoryFilter!=="作业";
-  if(categoryFilter==="全部") {renderCalendar();renderSources();return;}
+  $("overview-views").hidden=categoryFilter!=="全部";
+  document.querySelectorAll("[data-view]").forEach(button=>button.setAttribute("aria-pressed",String(button.dataset.view===overviewView)));
+  if(categoryFilter==="全部") {overviewView==="axes"?renderAxes():renderCalendar();renderSources();return;}
+  if(categoryFilter==="记录") {renderRecords(visible);renderSources();return;}
   if(categoryFilter!=="作业") {renderSchedule(visible);renderSources();return;}
   $("board").replaceChildren(...Object.entries(STATES).map(([state, label]) => {
     const column = element("section", null, `column ${state}`);
@@ -854,10 +862,10 @@ async function refresh() {
     const data = await api("/api/board");
     if (sequence !== refreshSequence || hasDraft() || document.querySelector(".checklist[data-busy]")) return;
     $("login").hidden = true; $("workspace").hidden = false;
-    tasks = data.tasks; sources = data.sources; timetables=data.timetables || [];
+    tasks = data.tasks; axes=data.axes || [];axisItems=data.axis_items || [];sources = data.sources; timetables=data.timetables || [];
     if($("sources-dialog").open && collectorState)checkCollector();
     if(Date.now()-lastCloudCheck>=60000)checkCloud();
-    const signature = JSON.stringify([tasks, sources, timetables, categoryFilter, Math.floor(Date.now()/60000)]);
+    const signature = JSON.stringify([tasks, axes, axisItems, sources, timetables, categoryFilter, Math.floor(Date.now()/60000)]);
     if (signature !== lastPayload) { render(); lastPayload = signature; }
     $("load-error").textContent = "";
     maybeLoginReminder();
@@ -866,21 +874,24 @@ async function refresh() {
   }
 }
 function toggleDates() {
-  const homework = taskCategory === "作业";
-  $("deadline-field").hidden = !homework; $("range-fields").hidden = homework;
+  const homework = taskCategory === "作业",record=taskCategory==="记录";
+  $("record-time-field").hidden=!record;$("record-time").required=record;
+  $("deadline-field").hidden = !homework; $("range-fields").hidden = homework || record;
   $("due-at").required = homework && !editing?.source;
-  $("starts-at").required = !homework; $("ends-at").required = !homework;
+  $("starts-at").required = !homework && !record; $("ends-at").required = !homework && !record;
 }
 function openTask(task = null) {
   if (hasDraft()) { notice("请先保存或取消正在编辑的待办事项"); return; }
   editing = task; $("task-form").reset(); $("task-error").textContent = "";
-  taskCategory = task?.category || categoryFilter;
+  taskCategory = task?.category || newTaskCategory || (categoryFilter==="全部"?"作业":categoryFilter);
+  $("record-time").value=localInput(task?.starts_at || new Date());
+  fillAxisSelect(task?.axis_id || newTaskAxis);
   $("dialog-title").textContent = task ? `编辑${taskCategory}` : `添加${taskCategory}`;
   $("task-title").value = task?.title || "";
   $("task-location").value = task?.location || "";
   $("task-content").value=taskContent(task);
-  $("task-content").placeholder={作业:"记录作业要求、思路或需要注意的事项",课程:"记录课程备忘、学习重点或需要携带的资料",考试:"记录考试范围、复习提醒或需要携带的物品",活动:"记录活动议程、举办人、报名信息或其他备忘",会议:"记录会议议程、主持人、讨论要点或会前准备"}[taskCategory];
-  $("homework-status").hidden=taskCategory!=="作业";$("done-field").hidden=["作业","课程"].includes(taskCategory);$("task-done").checked=task?.status==="done";
+  $("task-content").placeholder={作业:"记录作业要求、思路或需要注意的事项",课程:"记录课程备忘、学习重点或需要携带的资料",考试:"记录考试范围、复习提醒或需要携带的物品",活动:"记录活动议程、举办人、报名信息或其他备忘",会议:"记录会议议程、主持人、讨论要点或会前准备",记录:"今天做了什么，有什么感受？"}[taskCategory];
+  $("homework-status").hidden=taskCategory!=="作业";$("done-field").hidden=["作业","课程","记录"].includes(taskCategory);$("task-done").checked=task?.status==="done";
   $("schedule-fields").hidden=!["课程","考试"].includes(taskCategory);
   $("schedule-person-label").hidden=$("schedule-person").hidden=taskCategory!=="课程";
   $("schedule-person").value=task?.details?.teacher || "";
@@ -895,12 +906,13 @@ function openTask(task = null) {
   if(task){const link=taskSourceLink(task);if(link)$("task-source").append(link);}
   $("task-todos").replaceChildren(checklist(draftTodos, async todos => { draftTodos = todos; }, true));
   $("status").value = task?.status || "todo";
-  $("task-completed").hidden=taskCategory==="课程" || !task?.completed_at; $("task-completed").textContent=task?.completed_at ? `完成时间 · ${formatTime(task.completed_at,true)}（重新打开任务后再次完成会重新计时）` : "";
+  $("task-completed").hidden=["课程","记录"].includes(taskCategory) || !task?.completed_at; $("task-completed").textContent=task?.completed_at ? `完成时间 · ${formatTime(task.completed_at,true)}（重新打开任务后再次完成会重新计时）` : "";
   $("due-at").value = localInput(task?.due_at); $("starts-at").value = localInput(task?.starts_at); $("ends-at").value = localInput(task?.ends_at);
   toggleDates(); $("task-dialog").showModal();
 }
 function closeAddMenu() { $("add-menu").hidden = true; $("add-task").setAttribute("aria-expanded", "false"); }
 function startAdd() {
+  newTaskAxis=null;newTaskCategory=null;
   if (categoryFilter !== "全部") return openTask();
   $("add-menu").hidden = !$("add-menu").hidden;
   $("add-task").setAttribute("aria-expanded", String(!$("add-menu").hidden));
@@ -908,7 +920,7 @@ function startAdd() {
 }
 $("add-menu").replaceChildren(...CATEGORIES.map(category => {
   const button = element("button", `＋ ${category}`);
-  button.onclick = () => { if (hasDraft()) { notice("请先保存或取消待办输入"); return; } categoryFilter = category; closeAddMenu(); render(); openTask(); };
+  button.onclick = () => { if (hasDraft()) { notice("请先保存或取消待办输入"); return; } newTaskCategory = category; closeAddMenu(); openTask(); };
   return button;
 }));
 document.addEventListener("click", event => { if (!event.target.closest(".add-control") && !event.target.closest(".empty")) closeAddMenu(); });
@@ -923,9 +935,9 @@ $("task-form").onsubmit = async event => {
     const homework = taskCategory === "作业";
     if ($("task-todos").querySelector("[data-dirty], [data-busy]")) throw new Error("请先确认或取消正在输入的待办事项");
     const links=[...$("task-links").querySelectorAll(".link-edit-row")].map(row=>({label:row.querySelector(".link-label").value.trim(),url:row.querySelector(".link-url").value.trim()})).filter(link=>link.label || link.url);
-    const payload = {category: taskCategory, title: $("task-title").value.trim(), content:$("task-content").value.trim(), location: $("task-location").value.trim(), todos: draftTodos, links, attachments:draftAttachments.map(file=>file.id), status:homework?$("status").value:taskCategory==="课程"?"todo":$("task-done").checked?"done":"todo",
-      due_at: homework ? inputTime($("due-at").value) : null, starts_at: homework ? null : inputTime($("starts-at").value),
-      ends_at: homework ? null : inputTime($("ends-at").value)};
+    const payload = {category: taskCategory, title: $("task-title").value.trim(), content:$("task-content").value.trim(), location: $("task-location").value.trim(), todos: draftTodos, links, attachments:draftAttachments.map(file=>file.id), axis_id:$("task-axis").value || null,status:homework?$("status").value:["课程","记录"].includes(taskCategory)?"todo":$("task-done").checked?"done":"todo",
+      due_at: homework ? inputTime($("due-at").value) : null, starts_at: homework ? null : inputTime($(taskCategory==="记录"?"record-time":"starts-at").value),
+      ends_at: homework ? null : inputTime($(taskCategory==="记录"?"record-time":"ends-at").value)};
     payload.details={...(editing?.details || {})};delete payload.details.organizer;
     if(taskCategory==="课程" && (!editing || payload.starts_at!==editing.starts_at || payload.ends_at!==editing.ends_at)) {
       const table=timetables.find(t=>t.semester===(editing?.details?.semester || courseSemester));
@@ -939,7 +951,7 @@ $("task-form").onsubmit = async event => {
     if(taskCategory==="考试")payload.details.seat=$("schedule-seat").value.trim();
     if (editing) payload.revision = editing.revision;
     await api(editing ? `/api/tasks/${editing.id}` : "/api/tasks", editing ? "PATCH" : "POST", payload);
-    $("task-dialog").close(); notice("任务已保存"); await refresh();
+    $("task-dialog").close(); notice("卡片已保存"); await refresh();if($("axis-dialog").open)renderAxisMembers();
   } catch (error) { $("task-error").textContent = error.message; }
   finally { $("save-task").disabled = false; }
 };
@@ -950,9 +962,9 @@ $("confirm-delete").onclick = async () => {
   finally { $("confirm-delete").disabled = false; }
 };
 const demoSteps=[
-  {category:"全部",target:"#board",title:"总览：从日期找到任务",text:"切换月份，点击某一天查看当天安排。已完成的作业会从日历隐藏，卡片下方可以直接调整进度。"},
+  {category:"全部",target:"#board",title:"总览：从日期找到任务",text:"在日历中按日期查看安排，或切换轴线整理目标与记录。课程继续显示在总览。"},
   {category:"作业",target:"#board",title:"作业：进度一目了然",text:"待开始、进行中、已完成分栏展示。卡片上的待办事项可以增删、修改和拖动排序；其他详情通过“编辑”修改。"},
-  {category:"课程",target:"#board",title:"课程：按课表查看",text:"选择学期和教学周查看课程。考试、活动、会议也有独立板块，按各自的时间安排展示。"},
+  {category:"记录",target:"#board",title:"记录",text:"记下做过的事和当时的感受。记录也会出现在总览。"},
   {target:"#add-task",title:"随时补充自己的安排",text:"填写标题和时间，再按需要补充地点、内容、待办、附件和链接。"},
   {target:"#sources-button",title:"网站配置在这里",text:"点击侧栏的“来源与同步”，安装并连接同步扩展，就可以接入自己的校园网站。下一步带你查看配置位置。"},
   {target:"#add-source-link",sources:true,title:"一个网站，一条配置",text:"点击“添加网站”，粘贴需要同步的页面网址，再点确认。已适配平台直接同步；其他网站先授权读取，在原网页确认预览，识别不准时点选字段。每个平台旁的“同步”只读取该来源，“一键同步”读取全部来源。"},
@@ -983,6 +995,7 @@ async function showDemoStep() {
   }
   $("demo-title").textContent=step.title;$("demo-description").textContent=step.text;$("demo-progress").textContent=`${demoIndex+1} / ${demoSteps.length}`;
   await new Promise(requestAnimationFrame);
+  if(step.sources)await Promise.all($("sources-dialog").getAnimations().map(animation=>animation.finished.catch(()=>{})));
   if(!$("demo-dialog").open || demoSteps[demoIndex]!==step)return;
   $("demo-prev").disabled=demoIndex===0;$("demo-next").disabled=false;$("demo-next").textContent=demoIndex===demoSteps.length-1?"开始使用":"下一步";
   document.querySelector(step.target)?.scrollIntoView({block:step.sources?"center":"nearest",behavior:"instant"});
@@ -1028,8 +1041,8 @@ function showRecovery(code) {
 $("auth-login").onclick=()=>setAuthMode("login");$("auth-register").onclick=()=>setAuthMode("register");$("auth-recover").onclick=()=>setAuthMode("recover");
 $("recovery-dialog").addEventListener("cancel",event=>{if($("recovery-done").disabled)event.preventDefault();});
 $("download-recovery").onclick=()=>{
-  const url=URL.createObjectURL(new Blob([`RUChecklist\n网站：${location.origin}\n用户名：${accountName}\n恢复码：${$("recovery-value").textContent}\n请勿分享此文件。\n`],{type:"text/plain;charset=utf-8"}));
-  const link=element("a");link.href=url;link.download="RUChecklist-账号恢复码.txt";link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);$("recovery-done").disabled=false;
+  const url=URL.createObjectURL(new Blob([`RUCapture\n网站：${location.origin}\n用户名：${accountName}\n恢复码：${$("recovery-value").textContent}\n请勿分享此文件。\n`],{type:"text/plain;charset=utf-8"}));
+  const link=element("a");link.href=url;link.download="RUCapture-账号恢复码.txt";link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);$("recovery-done").disabled=false;
 };
 $("recovery-done").onclick=()=>{$("recovery-dialog").close();$("recovery-value").textContent="";maybeMessageBoard();maybeDemo();};
 $("account-button").onclick=()=>{$("account-name").textContent=`用户名：${accountName}`;$("account-password").value="";$("account-error").textContent="";$("account-dialog").showModal();};
@@ -1050,9 +1063,11 @@ $("confirm-logout").onclick=async()=>{try{await api("/api/logout","POST",{});sho
 document.addEventListener("visibilitychange", () => { if (!document.hidden && !$("workspace").hidden) refresh(); });
 let lastPoll=0;
 setInterval(() => { if (!document.hidden && !$("workspace").hidden && !document.activeElement.matches("#board input, #board select") && Date.now()-lastPoll>=(trialMode?60000:6000)) {lastPoll=Date.now();refresh();} }, 6000);
+document.addEventListener("DOMContentLoaded",()=>{
 api("/api/session").then(async data => {
   configureAccount(data);
   if(!data.authenticated)return showLogin();
   await refresh();await startMessages();
   if(sessionStorage.getItem("resume-setup")){sessionStorage.removeItem("resume-setup");$("sources-button").click();}else maybeDemo();
 }).catch(() => { showLogin(); $("login-error").textContent = "服务器暂时无法连接，请刷新重试"; });
+});

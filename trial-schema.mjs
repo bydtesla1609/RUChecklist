@@ -7,7 +7,7 @@ export function partition(db,slot) {
   const prefix=`u${slot}_`;
   return {prepare(sql){
     // Rewrite only SQL identifiers; never strings or bound values. All SQL comes from our Worker.
-    const scoped=sql.replace(/'(?:''|[^'])*'|\b(?:tasks|sources|settings|files|file_chunks|sessions|login_attempts)\b/g,word=>word.startsWith("'")?word:prefix+word);
+    const scoped=sql.replace(/'(?:''|[^'])*'|\b(?:axes|tasks|sources|settings|files|file_chunks|sessions|login_attempts)\b/g,word=>word.startsWith("'")?word:prefix+word);
     return db.prepare(scoped);
   },batch(statements){return db.batch(statements);}};
 }
@@ -21,10 +21,12 @@ CREATE TABLE IF NOT EXISTS trial_attempts (key TEXT PRIMARY KEY,count INTEGER NO
   for(let slot=1;slot<=TRIAL_SLOTS;slot++) {
     const p=`u${slot}_`;
     sql.push(`CREATE TABLE IF NOT EXISTS ${p}tasks (
-id TEXT PRIMARY KEY,category TEXT NOT NULL CHECK(category IN ('作业','课程','考试','活动','会议')),content TEXT NOT NULL,
+id TEXT PRIMARY KEY,category TEXT NOT NULL CHECK(category IN ('作业','课程','考试','活动','会议','记录')),content TEXT NOT NULL,
 due_at TEXT,starts_at TEXT,ends_at TEXT,status TEXT NOT NULL DEFAULT 'todo' CHECK(status IN ('todo','doing','done')),
 source TEXT,external_id TEXT,source_url TEXT,course TEXT NOT NULL DEFAULT '',overrides TEXT NOT NULL DEFAULT '[]',revision INTEGER NOT NULL DEFAULT 1,deleted INTEGER NOT NULL DEFAULT 0,
-created_at TEXT NOT NULL,updated_at TEXT NOT NULL,title TEXT NOT NULL DEFAULT '',location TEXT NOT NULL DEFAULT '',todos TEXT NOT NULL DEFAULT '[]',links TEXT NOT NULL DEFAULT '[]',attachments TEXT NOT NULL DEFAULT '[]',completed_at TEXT,source_status TEXT,details TEXT NOT NULL DEFAULT '{}',archived_at TEXT,archive_restored_at TEXT,UNIQUE(source,external_id));
+created_at TEXT NOT NULL,updated_at TEXT NOT NULL,title TEXT NOT NULL DEFAULT '',location TEXT NOT NULL DEFAULT '',todos TEXT NOT NULL DEFAULT '[]',links TEXT NOT NULL DEFAULT '[]',attachments TEXT NOT NULL DEFAULT '[]',completed_at TEXT,source_status TEXT,details TEXT NOT NULL DEFAULT '{}',archived_at TEXT,archive_restored_at TEXT,axis_id TEXT,UNIQUE(source,external_id));
+CREATE TABLE IF NOT EXISTS ${p}axes (id TEXT PRIMARY KEY,title TEXT NOT NULL,content TEXT NOT NULL DEFAULT '',starts_at TEXT,ends_at TEXT,revision INTEGER NOT NULL DEFAULT 1,deleted INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS ${p}axis ON ${p}tasks(axis_id,deleted);
 CREATE INDEX IF NOT EXISTS ${p}visible ON ${p}tasks(deleted,created_at);
 CREATE INDEX IF NOT EXISTS ${p}completed ON ${p}tasks(deleted,status,completed_at);
 CREATE TABLE IF NOT EXISTS ${p}sources (id TEXT PRIMARY KEY,last_seen TEXT,task_count INTEGER NOT NULL DEFAULT 0,error TEXT);

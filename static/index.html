@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#101225"><meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="description" content="作业、课程、考试、活动与会议，一处安排大学生活。">
-  <title>RUChecklist</title>
+  <meta name="description" content="记录与规划。">
+  <title>RUCapture</title>
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script><script src="/static/messages.js" defer></script>
+  <link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script><script src="/static/axis-layout.js" defer></script><script src="/static/capture.js" defer></script><script src="/static/messages.js" defer></script>
 </head>
 <body>
 <section id="login" class="login" hidden>
   <form id="login-form" class="login-card">
-    <div class="brand-icon" aria-hidden="true"><img src="/static/icon.svg" alt="" width="56" height="56"></div><h1 class="login-brand">RUChecklist</h1>
+    <div class="brand-icon" aria-hidden="true"><img src="/static/icon.svg" alt="" width="56" height="56"></div><h1 class="login-brand">RUCapture</h1>
     <div id="trial-auth" hidden><p id="trial-notice" class="error" hidden></p><div class="auth-tabs"><button id="auth-login" type="button" class="secondary">登录</button><button id="auth-register" type="button" class="text-button">邀请码注册</button></div><label for="username">用户名</label><input id="username" autocomplete="username" minlength="3" maxlength="24" placeholder="3–24 位字母、数字或下划线"><div id="invite-field" hidden><label for="invite-code">邀请码</label><input id="invite-code" autocomplete="off" spellcheck="false"></div><div id="recovery-field" hidden><label for="recovery-code">账号恢复码</label><input id="recovery-code" autocomplete="off" spellcheck="false"></div></div>
     <label id="password-label" for="password">访问密码</label><input id="password" type="password" autocomplete="current-password" required>
 
@@ -21,8 +21,8 @@
 </section>
 <div id="workspace" class="workspace" hidden>
   <aside class="sidebar">
-    <a class="brand" href="/" aria-label="RUChecklist首页"><span class="brand-icon" aria-hidden="true"><img src="/static/icon.svg" alt="" width="56" height="56"></span><span class="brand-copy"><span class="wordmark"><b>RU</b>Checklist</span><small id="app-version">v2.15.0</small></span></a>
-    <p class="nav-heading">我的安排</p><nav id="categories" aria-label="校园板块"></nav>
+    <div class="brand-row"><button id="sidebar-toggle" class="sidebar-toggle" aria-label="收起侧栏" aria-expanded="true" title="收起侧栏"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="4"/><path d="M9 4v16"/></svg></button><a class="brand" href="/" aria-label="RUCapture首页"><span class="brand-icon" aria-hidden="true"><img src="/static/icon.svg" alt="" width="56" height="56"></span><span class="brand-copy"><span class="wordmark"><b>RU</b>Capture</span><small id="app-version">v3.0.0</small></span></a></div>
+    <nav id="categories" aria-label="校园板块"></nav>
     <div class="sidebar-bottom">
       <button id="demo-button" class="nav-button" aria-label="使用演示"><span>使用演示</span></button>
       <button id="sources-button" class="nav-button"><span>来源与同步</span></button>
@@ -32,9 +32,9 @@
     </div>
   </aside>
   <main>
-    <section class="heading"><div><h1 id="view-title">总览</h1></div><div class="add-control"><button id="add-task" class="primary" aria-expanded="false"><span aria-hidden="true">＋</span> 添加任务</button><div id="add-menu" class="add-menu" hidden aria-label="选择任务板块"></div></div></section>
+    <section class="heading"><div><h1 id="view-title">总览</h1></div><div class="add-control"><button id="add-task" class="primary" aria-expanded="false"><span aria-hidden="true">＋</span> 添加卡片</button><div id="add-menu" class="add-menu" hidden aria-label="选择任务板块"></div></div></section>
     <section class="summary" aria-label="任务概况"><div><span>待完成</span><strong id="count-open">0</strong><small>按截止 / 结束时间从近到远</small><span class="stat-art" aria-hidden="true">◌</span></div><div><span>未来 7 天到期</span><strong id="count-soon">0</strong><small>按截止 / 结束时间从近到远</small><span class="stat-art" aria-hidden="true">↗</span></div><div><span>已逾期</span><strong id="count-overdue">0</strong><small>已过截止 / 结束时间，且尚未完成</small><span class="stat-art" aria-hidden="true">⌁</span></div><div><span>已完成</span><strong id="count-done">0</strong><small>按完成时间倒序 · 满 7 天自动归档</small><span class="stat-art" aria-hidden="true">✓</span></div></section>
-    <div id="board-caption" class="board-caption"><h2>任务看板</h2></div>
+    <div id="overview-views" class="overview-views" role="group" aria-label="总览视图"><button data-view="calendar" aria-pressed="true">▦ 日历</button><button data-view="axes" aria-pressed="false">⌁ 轴线</button></div>
     <div id="board" class="board" aria-live="polite"></div>
     <p id="load-error" class="error" role="alert"></p>
   </main>
@@ -53,9 +53,10 @@
     <label for="task-title">标题 <span class="required">必填</span></label><input id="task-title" maxlength="4000" placeholder="为这件事起个名字" required>
     <div id="deadline-field"><label for="due-at">截止时间 <span class="required">必填</span></label><input id="due-at" type="datetime-local"></div>
     <div id="range-fields" class="date-range" hidden><div><label for="starts-at">开始时间 <span class="required">必填</span></label><input id="starts-at" type="datetime-local"></div><div><label for="ends-at">结束时间 <span class="required">必填</span></label><input id="ends-at" type="datetime-local"></div></div>
-    <p class="hint">以上时间均为北京时间（UTC+8）。</p>
+    <div id="record-time-field" hidden><label for="record-time">时间 <span class="required">必填</span></label><input id="record-time" type="datetime-local"></div><p class="hint">北京时间</p>
     <label for="task-location">地点 <span class="optional">选填</span></label><input id="task-location" maxlength="300" placeholder="例如：明德楼 302 / 图书馆 / 线上">
     <label for="task-content">内容 <span class="optional">选填</span></label><textarea id="task-content" maxlength="10000" rows="4" placeholder="记录备忘、相关安排或补充说明"></textarea>
+    <label for="task-axis">归轴 <span class="optional">选填</span></label><select id="task-axis"><option value="">不归轴</option></select>
     <div id="schedule-fields" hidden><label for="schedule-person" id="schedule-person-label">教师 <span class="optional">选填</span></label><input id="schedule-person" maxlength="300" placeholder="选填"><label for="schedule-seat">座位号 <span class="optional">选填</span></label><input id="schedule-seat" maxlength="300"></div><div class="field-heading"><span>待办事项 <span class="optional">选填</span></span><span class="hint">拖动 ⋮⋮ 排序</span></div>
     <div id="task-todos"></div>
     <div class="resource-heading"><span>附件 <span class="optional">选填</span></span><span id="file-limit-hint" class="hint">单个文件 ≤ 10 MB</span></div>
@@ -66,15 +67,23 @@
     <p id="task-completed" class="hint" hidden></p><div id="homework-status"><label for="status">进度</label><select id="status"><option value="todo">待开始</option><option value="doing">进行中</option><option value="done">已完成</option></select></div>
     <label id="done-field" class="completion-control" hidden><input id="task-done" type="checkbox">已完成</label>
     <p id="task-error" class="error" role="alert"></p>
-    <div class="dialog-actions"><button type="button" class="secondary close-dialog">取消</button><button id="save-task" class="primary" type="submit">保存任务</button></div>
+    <div class="dialog-actions"><button type="button" class="secondary close-dialog">取消</button><button id="save-task" class="primary" type="submit">保存卡片</button></div>
   </form>
+</dialog>
+<dialog id="axis-dialog">
+  <form id="axis-form"><div class="dialog-heading"><h2 id="axis-dialog-title">添加轴线</h2><button type="button" class="icon-button close-dialog" aria-label="关闭轴线">×</button></div>
+  <label for="axis-title">标题 <span class="required">必填</span></label><input id="axis-title" required maxlength="200" placeholder="这条轴线叫什么？">
+  <label for="axis-content">内容 <span class="optional">选填</span></label><textarea id="axis-content" rows="3" maxlength="10000" placeholder="目标、计划或几句说明"></textarea>
+  <div class="date-range"><div><label for="axis-start">开始时间 <span class="optional">选填</span></label><input id="axis-start" type="datetime-local"></div><div><label for="axis-end">结束时间 <span class="optional">选填</span></label><input id="axis-end" type="datetime-local"></div></div>
+  <div id="axis-members" class="axis-members"></div><p id="axis-error" class="error" role="alert"></p>
+  <div class="dialog-actions"><button id="axis-delete" type="button" class="text-button">删除轴线</button><button type="button" class="secondary close-dialog">取消</button><button id="axis-save" class="primary">保存轴线</button></div></form>
 </dialog>
 <dialog id="sources-dialog">
   <div class="dialog-heading"><div><h2>连接你的网站</h2></div><button class="icon-button close-dialog" aria-label="关闭">×</button></div>
   <p class="muted guide-intro">首次在电脑浏览器中完成下面的配置清单。之后登录同一个账号，手机也能看到同步的任务。</p>
   <details id="guide-install" class="guide-step" open><summary><span class="step-number">1</span><span>安装或更新同步扩展<small id="install-state">只需安装一次</small></span></summary>
     <div id="collector-install" class="step-body"><p class="hint">扩展最新版 <strong>v1.9.1</strong>。网页更新只需刷新；只有扩展发布新版时才需要更新本机文件。已保存的任务和附件会保留。</p>
-    <a class="secondary extension-download" href="/extension.zip?v=1.9.1" download="RUChecklist-extension.zip">下载扩展 v1.9.1</a>
+    <a class="secondary extension-download" href="/extension.zip?v=1.9.1" download="RUCapture-extension.zip">下载扩展 v1.9.1</a>
     <h4>首次安装</h4><ol><li>下载后右键选择“全部解压缩”，记住其中的 <strong>extension</strong> 文件夹位置。</li><li>从浏览器菜单打开“扩展程序 → 管理扩展”。<button id="copy-extension-page" class="text-button" type="button">复制管理页地址</button></li><li>开启“开发人员模式”，点“加载解压缩的扩展”，选择该 <strong>extension</strong> 文件夹。</li></ol>
     <h4>已安装：更新与重新加载</h4><ol><li>如果上方提示扩展有新版，下载并解压，将新版 <strong>extension 内的文件</strong>复制到原安装文件夹，选择“替换目标中的文件”。版本已是最新时跳过这一步。</li><li>点击下面“打开扩展设置”，在设置页点<strong>“重新加载此扩展”</strong>，等待设置页重新打开并核对顶部版本。也可以在管理扩展页面点击重新加载图标。</li><li>刷新本看板，再点击“重新检测”。无需卸载扩展，已有任务和附件不会被清空。</li></ol><p class="hint">重新加载只启用本机已有文件，不会下载新版；若仍显示旧版本，请核对替换的是否为原安装文件夹。</p>
     <button id="collector-options" class="secondary" type="button" disabled>打开扩展设置</button>

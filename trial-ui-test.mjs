@@ -20,7 +20,7 @@ try {
   await page.locator("#username").fill("trial_student");await page.locator("#password").fill("Ab1234");await page.locator("#invite-code").fill(invites[0]);
   await page.locator("#login-form button[type=submit]").click();await page.locator("#recovery-dialog").waitFor({state:"visible"});
   const recovery=await page.locator("#recovery-value").textContent();assert.equal(recovery.length,48);
-  const download=page.waitForEvent("download");await page.locator("#download-recovery").click();assert.equal((await download).suggestedFilename(),"RUChecklist-账号恢复码.txt");await page.locator("#recovery-done").click();
+  const download=page.waitForEvent("download");await page.locator("#download-recovery").click();assert.equal((await download).suggestedFilename(),"RUCapture-账号恢复码.txt");await page.locator("#recovery-done").click();
   await page.locator("#messages-dialog").waitFor({state:"visible"});await page.locator("#messages-read").click();
   await page.locator("#demo-dialog").waitFor({state:"visible"});
   for(let step=0;step<8;step++) {

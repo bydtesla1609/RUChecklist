@@ -1,6 +1,6 @@
 {
-  "name": "ruchecklist",
-  "version": "2.15.0",
+  "name": "rucapture",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -10,8 +10,8 @@
     "start": "node local.mjs",
     "build:pages": "node build-pages.mjs",
     "build:extension": "python package-extension.py",
-    "test": "node --test test.mjs resources-test.mjs completion-test.mjs cloud-test.mjs academic-test.mjs trial-test.mjs zhifz-test.mjs ruc-lists-test.mjs generic-test.mjs community-test.mjs",
-    "check": "node --check worker.mjs && node --check trial-worker.mjs && node --check community.mjs && node --check static/app.js && node --check static/messages.js",
+    "test": "node --test test.mjs resources-test.mjs completion-test.mjs cloud-test.mjs academic-test.mjs trial-test.mjs zhifz-test.mjs ruc-lists-test.mjs generic-test.mjs community-test.mjs capture-test.mjs",
+    "check": "node --check worker.mjs && node --check trial-worker.mjs && node --check community.mjs && node --check static/app.js && node --check static/messages.js && node --check static/capture.js && node --check static/axis-layout.js",
     "test:ui": "node ui-test.mjs",
     "test:trial-ui": "node trial-ui-test.mjs",
     "test:extension": "node extension-ui-test.mjs",
@@ -19,6 +19,7 @@
     "build:trial": "node build-pages.mjs --trial",
     "test:generic-ui": "node generic-ui-test.mjs",
     "test:generic-native": "node generic-native-test.mjs",
-    "test:community-ui": "node community-ui-test.mjs"
+    "test:community-ui": "node community-ui-test.mjs",
+    "test:capture-ui": "node capture-ui-test.mjs"
   }
 }

@@ -84,6 +84,7 @@ try {
   await page.locator("#attachment-input").setInputFiles([{name:"示例图片.png",mimeType:"image/png",buffer:png},{name:"阅读材料.docx",mimeType:"application/vnd.openxmlformats-officedocument.wordprocessingml.document",buffer:Buffer.from("PK-test-download")}]);
   await page.waitForFunction(()=>document.getElementById("upload-state").textContent.includes("上传完成"));
   await page.locator("#save-task").click(); await page.locator("#task-dialog").waitFor({state: "hidden"});
+  await category(page,"活动").click();
   const card = page.locator("article.task").first(); await card.waitFor();
   assert.equal(await card.locator(".badge").textContent(), "活动");
   assert.equal(await card.getByRole("link",{name:"课程参考资料 ↗"}).getAttribute("href"),"https://example.com/course-notes");
@@ -223,7 +224,7 @@ try {
   database.prepare("UPDATE tasks SET due_at=NULL WHERE title=?").run("待补充日期的导入任务");
   await page.evaluate(() => refresh());await category(page,"总览").click();
   await page.evaluate(()=>{calendarMonth="2026-10";selectedDay="2026-10-02";renderCalendar();});
-  assert.equal(await page.title(),"RUChecklist");
+  assert.equal(await page.title(),"RUCapture");
   assert.equal(await page.locator(".topbar,.focus-note,#sync-state").count(),0);
   assert.equal(await page.locator("#board [data-date='2026-10-02'] .day-task").count(),2);
   assert.equal(await page.locator("#board [data-date='2026-10-02'] .day-more").textContent(),"+1 项");
@@ -337,50 +338,26 @@ try {
   },{day:scheduleDate,weekStart});
   const outline="https://jw.ruc.edu.cn/Njw2017/student/student-choice-center/syllabus-entry-check.html#/?param=term-a,class-a";
   database.prepare("UPDATE tasks SET source_url=? WHERE title='教学周课表验证'").run(outline);await page.evaluate(()=>refresh());
-  await category(page,"课程").click();
-  assert.equal(await page.locator(".summary").isVisible(),false);
-  assert.equal(await page.locator(".timetable thead th").count(),8);
-  assert.equal(await page.locator(".timetable tbody tr").count(),6);
-  assert.equal(await page.locator("#course-semester").inputValue(),"term-a");
-  assert.equal(await page.locator(".course-block").filter({hasText:"教学周课表验证"}).count(),1);
-  assert.match(await page.locator(".course-block").filter({hasText:"教学周课表验证"}).textContent(),/4–5周/);
-  await page.locator("#course-week").selectOption("6");assert.equal(await page.locator(".course-block").count(),0);
-  await page.locator("#course-week").selectOption("5");assert.equal(await page.locator(".course-block").count(),1);
-  await page.locator("#course-semester").selectOption("term-old");assert.equal(await page.locator(".course-block h3").textContent(),"上学期课程");
-  await page.locator("#course-semester").selectOption("term-a");
-  assert.equal(await page.locator(".course-block button").count(),0);
-  assert.equal(await page.getByRole("link",{name:"查看教学大纲：教学周课表验证",exact:true}).getAttribute("href"),outline);
-  const courseCard=await page.evaluate(()=>{const node=card(tasks.find(t=>t.title==="教学周课表验证"));return {controls:node.querySelectorAll(".task-status").length,label:node.querySelector(".task-footer>a").textContent,url:node.querySelector(".task-footer>a").href};});
-  assert.deepEqual(courseCard,{controls:0,label:"教学大纲 ↗",url:outline});
-  await page.evaluate(()=>openTask(tasks.find(t=>t.title==="教学周课表验证")));
-  assert.equal(await page.locator("#status").isVisible(),false);assert.equal(await page.locator("#task-done").isVisible(),false);
-  assert.equal(await page.locator("#schedule-person").inputValue(),"示例教师");
-  await page.locator("#task-title").fill("教学周课表验证 · 改名");await page.locator("#save-task").click();await page.locator("#task-dialog").waitFor({state:"hidden"});
-  assert.equal(JSON.parse(database.prepare("SELECT overrides FROM tasks WHERE title=?").get("教学周课表验证 · 改名").overrides).includes("details"),false);
-  await page.locator("#course-week").selectOption("6");await page.locator("#add-task").click();
-  await page.locator("#task-title").fill("手动补课验证");
-  await page.locator("#starts-at").fill(`${timetable.days[16].date}T14:00`);await page.locator("#ends-at").fill(`${timetable.days[16].date}T15:30`);
-  await page.locator("#save-task").click();await page.locator("#task-dialog").waitFor({state:"hidden"});
-  const addedCourse=page.locator('.timetable td[data-weekday="3"][data-start="14:00"] .course-block');await addedCourse.waitFor();assert.match(await addedCourse.textContent(),/手动补课验证/);
-  await page.evaluate(()=>openTask(tasks.find(t=>t.title==="手动补课验证")));
-  await page.locator("#starts-at").fill(`${timetable.days[10].date}T10:00`);await page.locator("#ends-at").fill(`${timetable.days[10].date}T11:30`);
-  await page.locator("#save-task").click();await page.locator("#task-dialog").waitFor({state:"hidden"});
-  await page.locator("#course-week").selectOption("5");assert.match(await page.locator('.timetable td[data-weekday="4"][data-start="10:00"]').textContent(),/手动补课验证/);
-  const moved=database.prepare("SELECT id,revision,details FROM tasks WHERE title=?").get("手动补课验证");assert.equal(JSON.parse(moved.details).week,"5");
-  await page.evaluate(async task=>{await api(`/api/tasks/${task.id}`,"DELETE",{revision:task.revision});await refresh();},moved);
-  await page.locator("#course-week").selectOption("all");
-  await page.screenshot({animations:"disabled",path:"data/screenshots/courses.png",fullPage:true});
+  assert.equal(await category(page,"课程").count(),0);
+  await category(page,"总览").click();await page.evaluate(day=>calendarSelect(day),weekStart);
+  const courseCard=page.locator('.day-list .task').filter({has:page.locator('h3',{hasText:'教学周课表验证'})});
+  assert.equal(await courseCard.locator('.task-status').count(),0);
+  assert.equal(await courseCard.getByRole('link',{name:'教学大纲 ↗'}).getAttribute('href'),outline);
+  assert.equal(await courseCard.locator('.task-footer-main>a').count(),1);
+  await courseCard.locator('.edit-task').click();assert.equal(await page.locator('#done-field').isVisible(),false);
+  await page.locator('#task-content').fill('课后复习笔记');await page.locator('#save-task').click();await page.locator('#task-dialog').waitFor({state:'hidden'});
+  assert.equal(await courseCard.locator('.task-content').textContent(),'课后复习笔记');
   await category(page,"考试").click();assert.equal(await page.locator(".schedule-columns>.column").count(),2);assert.match(await page.locator(".exam-group").first().textContent(),/座位 · 28/);
   assert.equal(await page.locator("#count-open").evaluate(node=>getComputedStyle(node).color===getComputedStyle(document.body).color),true,"unfinished exams use normal text color");
   await page.screenshot({animations:"disabled",path:"data/screenshots/exams.png",fullPage:true});
   await phone.evaluate(()=>refresh());
-  for(const section of ["课程","考试","会议","活动"]) {
+  for(const section of ["记录","考试","会议","活动"]) {
     await category(phone,section).click();
     for(const width of [320,375,430,768]) {await phone.setViewportSize({width,height:844});assert.equal(await phone.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`${section} overflow at ${width}px`);}
   }
-  await phone.setViewportSize({width:390,height:844});await category(phone,"课程").click();await phone.screenshot({animations:"disabled",path:"data/screenshots/courses-mobile.png",fullPage:true});
+  await phone.setViewportSize({width:390,height:844});await category(phone,"记录").click();await phone.screenshot({animations:"disabled",path:"data/screenshots/courses-mobile.png",fullPage:true});
   assert.deepEqual(errors, []);
-  console.log("PASS: login-expiry popup on opening, one combined startup reminder, shared relogin links, verified recovery, Beijing monthly calendar, date selection, month/keyboard navigation, ranges, undated tasks, direct status and conflict handling, downloadable extension, unified cloud/local sync, completion order, archive filter/detail/delete, simulated board-to-extension controls, category inheritance, required title, location, detail/card todo CRUD, mouse/touch/keyboard sorting, two browser sessions, conflict draft retention, 320–768px layouts, timetable semester/week filters, recurring course grouping, course editing without status, hidden course summary, logo alignment, attachment upload/preview/download and shared links. Screenshots: data/screenshots/ (synthetic data only).");
+  console.log("PASS: login-expiry popup on opening, one combined startup reminder, shared relogin links, verified recovery, Beijing monthly calendar, date selection, month/keyboard navigation, ranges, undated tasks, direct status and conflict handling, downloadable extension, unified cloud/local sync, completion order, archive filter/detail/delete, simulated board-to-extension controls, category inheritance, required title, location, detail/card todo CRUD, mouse/touch/keyboard sorting, two browser sessions, conflict draft retention, 320–768px layouts, course import and calendar display, course editing without status, logo alignment, attachment upload/preview/download and shared links. Screenshots: data/screenshots/ (synthetic data only).");
 } finally {
   await browser?.close(); server.closeAllConnections(); await new Promise(resolve=>server.close(resolve)); database.close();
   await rm(directory, {recursive:true,force:true});

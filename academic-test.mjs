@@ -48,7 +48,7 @@ test("legacy category migration preserves all rows, attachments and user edits a
     const before=db.prepare("SELECT * FROM tasks ORDER BY id").all();db.close();
     ({database:db}=await createEnvironment(dir,"test-only"));
     for(const [i,item] of db.prepare("SELECT * FROM tasks ORDER BY id").all().entries()) {
-      assert.deepEqual({...item,category:before[i].category,revision:before[i].revision,details:undefined,archived_at:undefined,archive_restored_at:undefined},{...before[i],details:undefined,archived_at:undefined,archive_restored_at:undefined});
+      assert.deepEqual({...item,category:before[i].category,revision:before[i].revision,details:undefined,archived_at:undefined,archive_restored_at:undefined,axis_id:undefined},{...before[i],details:undefined,archived_at:undefined,archive_restored_at:undefined,axis_id:undefined});
       assert.equal(item.category,i===0?"作业":"活动");assert.equal(item.revision,[1,2,3].includes(i)?5:4);
     }
     assert.deepEqual([...db.prepare("SELECT data FROM file_chunks").get().data],[1,2,3]);
