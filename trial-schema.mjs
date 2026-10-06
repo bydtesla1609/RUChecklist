@@ -1,7 +1,11 @@
-// ponytail: this invitation-only pilot has exactly 30 storage partitions.
-// Move to an indexed user_id schema before expanding beyond this fixed pilot.
 import {COMMUNITY_SCHEMA} from "./community.mjs";
-export const TRIAL_SLOTS=30;
+// Bounded to 300 accounts across four databases, each below the free 500 MB limit.
+export const TRIAL_SLOTS=300;
+export function accountDatabase(env,slot){
+  if(!Number.isInteger(slot)||slot<1||slot>TRIAL_SLOTS)throw new Error("Invalid account partition");
+  const db=slot<=30?env.DB:slot<=120?env.STORE_A:slot<=210?env.STORE_B:env.STORE_C;
+  if(!db)throw new Error("Account storage is not configured");return db;
+}
 export function partition(db,slot) {
   if(!Number.isInteger(slot) || slot<1 || slot>TRIAL_SLOTS)throw new Error("Invalid account partition");
   const prefix=`u${slot}_`;
@@ -12,13 +16,19 @@ export function partition(db,slot) {
   },batch(statements){return db.batch(statements);}};
 }
 export function trialSchema() {
-  const sql=[`CREATE TABLE IF NOT EXISTS trial_users (id TEXT PRIMARY KEY,slot INTEGER NOT NULL UNIQUE CHECK(slot BETWEEN 1 AND 30),username TEXT NOT NULL UNIQUE,auth_id TEXT UNIQUE,recovery_hash TEXT,status TEXT NOT NULL DEFAULT 'pending',created_at INTEGER NOT NULL);
+  const sql=[`CREATE TABLE IF NOT EXISTS trial_users (id TEXT PRIMARY KEY,slot INTEGER NOT NULL UNIQUE CHECK(slot BETWEEN 1 AND 300),username TEXT NOT NULL UNIQUE,auth_id TEXT UNIQUE,recovery_hash TEXT,status TEXT NOT NULL DEFAULT 'pending',created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS trial_users_status ON trial_users(status,slot);
 CREATE TABLE IF NOT EXISTS trial_invites (hash TEXT PRIMARY KEY,slot INTEGER NOT NULL UNIQUE CHECK(slot BETWEEN 1 AND 30),used_by TEXT UNIQUE);
 CREATE TABLE IF NOT EXISTS trial_sessions (hash TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES trial_users(id),expires INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS trial_sessions_user ON trial_sessions(user_id);
 CREATE TABLE IF NOT EXISTS trial_collectors (hash TEXT PRIMARY KEY,user_id TEXT NOT NULL UNIQUE REFERENCES trial_users(id));
 CREATE TABLE IF NOT EXISTS trial_attempts (key TEXT PRIMARY KEY,count INTEGER NOT NULL,since INTEGER NOT NULL);`,COMMUNITY_SCHEMA];
-  for(let slot=1;slot<=TRIAL_SLOTS;slot++) {
+  return sql.join("\n")+"\n"+accountStorageSchema();
+}
+export function accountStorageSchema(start=1,end=30){
+  if(!Number.isInteger(start)||!Number.isInteger(end)||start<1||end>TRIAL_SLOTS||start>end)throw new Error("Invalid storage range");
+  const sql=[];
+  for(let slot=start;slot<=end;slot++) {
     const p=`u${slot}_`;
     sql.push(`CREATE TABLE IF NOT EXISTS ${p}tasks (
 id TEXT PRIMARY KEY,category TEXT NOT NULL CHECK(category IN ('作业','课程','考试','活动','会议','记录')),content TEXT NOT NULL,

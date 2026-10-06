@@ -2,6 +2,7 @@
 const $ = id => document.getElementById(id);
 const CATEGORIES = ["作业", "课程", "考试", "活动", "会议", "记录"];
 const NAV_CATEGORIES=CATEGORIES.filter(category=>category!=="课程");
+let savedAxisLayout=null,axisLayoutRevision=0;
 let axes=[],axisItems=[],overviewView="calendar",newTaskAxis=null,newTaskCategory=null;
 const STATES = {todo: "待开始", doing: "进行中", done: "已完成"};
 let tasks = [], sources = [], categoryFilter = "全部", editing = null, deleting = null;
@@ -12,6 +13,7 @@ let collectorState=null, cloudState=null, syncing=false;
 let syncSession=0, cloudCheckSequence=0, collectorCheckSequence=0, lastCloudCheck=0;
 const loginRemindersSeen=new Set();
 let sourceLinksState=null, boardAccount="personal", trialMode=false;
+let publicRegistration=false;
 let authMode="login", accountName="", registrationOpen=false, isAdmin=false;
 let editingWebsite=-1, websiteBusy=false;
 let archiveCategory="全部", archiveItems=[], archiveTotal=0, archiveSequence=0;
@@ -49,7 +51,7 @@ function showLogin() {
   $("workspace").hidden = true;
   $("login").hidden = false;
   document.querySelectorAll("dialog[open]").forEach(dialog => dialog.close());
-  tasks = []; axes=[];axisItems=[];resetAxisScene();sources = []; timetables=[]; archiveItems=[]; lastPayload = "";
+  tasks = [];savedAxisLayout=null;axisLayoutRevision=0; axes=[];axisItems=[];resetAxisScene();sources = []; timetables=[]; archiveItems=[]; lastPayload = "";
   $("archive-list").replaceChildren(); $("archive-detail").replaceChildren();
   $("board").replaceChildren(); $("sources-list").replaceChildren(); collectorState=null; cloudState=null;
   sourceLinksState=null;if(trialMode)boardAccount="";
@@ -355,7 +357,7 @@ function card(task) {
   const status=element(task.category==="作业"?"select":"input",null,"task-status");
   status.setAttribute("aria-label",`任务状态：${task.title}`);
   if(task.category==="作业") {for(const [value,label] of Object.entries(STATES)) {const option=element("option",label);option.value=value;status.append(option);}status.value=task.status;}
-  else {status.type="checkbox";status.checked=task.status==="done";status.setAttribute("aria-label",`已完成：${task.title}`);}
+  else {status.type="checkbox";status.checked=task.status==="done";status.setAttribute("aria-label",`${task.category==="记录"?"已完善":"已完成"}：${task.title}`);}
   status.onchange=async()=>{
     if(hasDraft()) {status.value=task.status;status.checked=task.status==="done";notice("请先保存或取消正在编辑的待办事项");return;}
     article.dataset.busy="true";
@@ -364,7 +366,7 @@ function card(task) {
       const updated=await api(`/api/tasks/${task.id}`,"PATCH",{status:task.category==="作业"?status.value:status.checked?"done":"todo",revision:task.revision});
       tasks=tasks.map(value=>value.id===updated.id?updated:value);lastPayload="";
       task=current=updated;
-      notice(`已设为${task.category==="作业"?STATES[updated.status]:updated.status==="done"?"已完成":"未完成"}`);
+      notice(`已设为${task.category==="作业"?STATES[updated.status]:updated.status==="done"?(task.category==="记录"?"已完善":"已完成"):(task.category==="记录"?"待完善":"未完成")}`);
     } catch(error) {notice(error.message);}
     finally {
       delete article.dataset.busy;status.value=task.status;status.checked=task.status==="done";
@@ -373,7 +375,7 @@ function card(task) {
     }
   };
   if(task.category==="作业")footer.append(status);
-  else if(!["课程","记录"].includes(task.category)) {const label=element("label",null,"completion-control");label.append(status,document.createTextNode("已完成"));footer.append(label);}
+  else if(task.category!=="课程") {const label=element("label",null,"completion-control");label.append(status,document.createTextNode(task.category==="记录"?"已完善":"已完成"));footer.append(label);}
   const footerMain=element("div",null,"task-footer-main");footerMain.append(...footer.childNodes);const original=taskSourceLink(task);if(original)footerMain.append(original);footer.append(footerMain);
   const actions = element("div", null, "task-actions");
   const edit = element("button", "编辑", "edit-task");
@@ -405,7 +407,7 @@ function card(task) {
 function render() {
   queueMicrotask(()=>document.querySelectorAll("select:not([data-enhanced])").forEach(enhanceSelect));
   renderNavigation();
-  document.querySelector(".summary").hidden=categoryFilter==="记录";
+  document.querySelector(".summary").hidden=false;
   document.querySelector(".summary").removeAttribute("data-schedule");
   const visible = tasks.filter(t => categoryFilter === "全部" || categoryFilter === t.category);
   $("view-title").textContent = categoryFilter === "全部" ? "总览" : categoryFilter;
@@ -419,7 +421,7 @@ function render() {
   $("board").className="board"+(categoryFilter==="全部"?" calendar-board":categoryFilter!=="作业"?" schedule-board":"");
   document.querySelectorAll(".summary>div").forEach((node,index)=>{
     node.querySelector("span").textContent=["待完成","未来 7 天到期","已逾期","已完成"][index];
-    node.querySelector("small").textContent=["按截止 / 结束时间从近到远","按截止 / 结束时间从近到远","已过截止 / 结束时间，且尚未完成","按完成时间倒序 · 满 7 天自动归档"][index];
+    node.querySelector("small").textContent="";
   });
   $("overview-views").hidden=categoryFilter!=="全部";
   document.querySelectorAll("[data-view]").forEach(button=>button.setAttribute("aria-pressed",String(button.dataset.view===overviewView)));
@@ -452,7 +454,7 @@ function shortDay(day) { return `${Number(day.slice(5,7))} 月 ${Number(day.slic
 function scheduleStats(labels,values,hints) {
   document.querySelector(".summary").dataset.schedule=categoryFilter;
   document.querySelectorAll(".summary>div").forEach((node,index)=>{
-    node.querySelector("span").textContent=labels[index];node.querySelector("strong").textContent=values[index];node.querySelector("small").textContent=hints[index];
+    node.querySelector("span").textContent=labels[index];node.querySelector("strong").textContent=values[index];node.querySelector("small").textContent="";
   });
 }
 function weekRanges(values) {
@@ -669,7 +671,7 @@ function collectorCommand(command,extra={},timeout=18000) {
 function updateSyncControls() {
   const connected=!!collectorState?.connected;
   $("collector-controls").hidden=!collectorState || connected;
-  $("install-state").textContent=collectorState?`已安装 v${collectorState.version} · ${(collectorState.version || "0").localeCompare("1.9.1",undefined,{numeric:true})<0?"可更新至 v1.9.1":"已是最新版本"}`:"只需安装一次";
+  $("install-state").textContent=collectorState?`已安装 v${collectorState.version} · ${(collectorState.version || "0").localeCompare("1.9.2",undefined,{numeric:true})<0?"可更新至 v1.9.2":"已是最新版本"}`:"只需安装一次";
   $("collector-options").disabled=!collectorState;
   $("browser-settings").hidden=!connected;
   $("collector-scan").disabled=syncing || !(cloudState?.enabled || (connected && collectorState.enabled));
@@ -743,7 +745,7 @@ $("source-links-form").onsubmit=event=>{
 };
 $("collector-recheck").onclick=async()=>{
   await checkCollector();
-  if(collectorState)$("guide-install").open=collectorState.version!=="1.9.1";
+  if(collectorState)$("guide-install").open=collectorState.version!=="1.9.2";
   else {sessionStorage.setItem("resume-setup","1");location.reload();}
 };
 $("copy-extension-page").onclick=async()=>{const url=/Edg\//.test(navigator.userAgent)?"edge://extensions":"chrome://extensions";try{await navigator.clipboard.writeText(url);notice("已复制，请粘贴到浏览器地址栏打开");}catch{notice(`请复制 ${url} 到浏览器地址栏`);}};
@@ -862,10 +864,10 @@ async function refresh() {
     const data = await api("/api/board");
     if (sequence !== refreshSequence || hasDraft() || document.querySelector(".checklist[data-busy]")) return;
     $("login").hidden = true; $("workspace").hidden = false;
-    tasks = data.tasks; axes=data.axes || [];axisItems=data.axis_items || [];sources = data.sources; timetables=data.timetables || [];
+    tasks = data.tasks;if(axisLayoutRevision!==(data.axis_layout?.revision || 0) && !axisScene?.dirty)resetAxisScene();savedAxisLayout=data.axis_layout?.layout || null;axisLayoutRevision=data.axis_layout?.revision || 0; axes=data.axes || [];axisItems=data.axis_items || [];sources = data.sources; timetables=data.timetables || [];
     if($("sources-dialog").open && collectorState)checkCollector();
     if(Date.now()-lastCloudCheck>=60000)checkCloud();
-    const signature = JSON.stringify([tasks, axes, axisItems, sources, timetables, categoryFilter, Math.floor(Date.now()/60000)]);
+    const signature = JSON.stringify([tasks, axes, axisItems, sources, timetables, data.axis_layout, categoryFilter, Math.floor(Date.now()/60000)]);
     if (signature !== lastPayload) { render(); lastPayload = signature; }
     $("load-error").textContent = "";
     maybeLoginReminder();
@@ -891,7 +893,7 @@ function openTask(task = null) {
   $("task-location").value = task?.location || "";
   $("task-content").value=taskContent(task);
   $("task-content").placeholder={作业:"记录作业要求、思路或需要注意的事项",课程:"记录课程备忘、学习重点或需要携带的资料",考试:"记录考试范围、复习提醒或需要携带的物品",活动:"记录活动议程、举办人、报名信息或其他备忘",会议:"记录会议议程、主持人、讨论要点或会前准备",记录:"今天做了什么，有什么感受？"}[taskCategory];
-  $("homework-status").hidden=taskCategory!=="作业";$("done-field").hidden=["作业","课程","记录"].includes(taskCategory);$("task-done").checked=task?.status==="done";
+  $("homework-status").hidden=taskCategory!=="作业";$("done-field").hidden=["作业","课程"].includes(taskCategory);$("done-label").textContent=taskCategory==="记录"?"已完善":"已完成";$("task-done").checked=task?.status==="done";
   $("schedule-fields").hidden=!["课程","考试"].includes(taskCategory);
   $("schedule-person-label").hidden=$("schedule-person").hidden=taskCategory!=="课程";
   $("schedule-person").value=task?.details?.teacher || "";
@@ -905,7 +907,7 @@ function openTask(task = null) {
   $("task-source").hidden=!task?.source_url; $("task-source").replaceChildren();
   if(task){const link=taskSourceLink(task);if(link)$("task-source").append(link);}
   $("task-todos").replaceChildren(checklist(draftTodos, async todos => { draftTodos = todos; }, true));
-  $("status").value = task?.status || "todo";
+  $("status").value = task?.status || "todo";enhanceSelect($("status"));
   $("task-completed").hidden=["课程","记录"].includes(taskCategory) || !task?.completed_at; $("task-completed").textContent=task?.completed_at ? `完成时间 · ${formatTime(task.completed_at,true)}（重新打开任务后再次完成会重新计时）` : "";
   $("due-at").value = localInput(task?.due_at); $("starts-at").value = localInput(task?.starts_at); $("ends-at").value = localInput(task?.ends_at);
   toggleDates(); $("task-dialog").showModal();
@@ -926,7 +928,7 @@ $("add-menu").replaceChildren(...CATEGORIES.map(category => {
 document.addEventListener("click", event => { if (!event.target.closest(".add-control") && !event.target.closest(".empty")) closeAddMenu(); });
 document.addEventListener("keydown", event => { if (event.key === "Escape" && !$("add-menu").hidden) { closeAddMenu(); $("add-task").focus(); } });
 $("add-task").onclick = startAdd;
-$("sources-button").onclick = () => { $("guide-install").open=!collectorState || collectorState.version!=="1.9.1";renderSources(); $("sources-dialog").showModal(); $("source-error").textContent=""; loadSourceLinks();checkCollector().then(()=>{if(!$("demo-dialog").open)$("guide-install").open=!collectorState || collectorState.version!=="1.9.1";}); checkCloud(); };
+$("sources-button").onclick = () => { $("guide-install").open=!collectorState || collectorState.version!=="1.9.2";renderSources(); $("sources-dialog").showModal(); $("source-error").textContent=""; loadSourceLinks();checkCollector().then(()=>{if(!$("demo-dialog").open)$("guide-install").open=!collectorState || collectorState.version!=="1.9.2";}); checkCloud(); };
 document.querySelectorAll(".close-dialog").forEach(button => button.onclick = () => button.closest("dialog").close());
 $("task-form").onsubmit = async event => {
   event.preventDefault(); $("save-task").disabled = true; $("task-error").textContent = "";
@@ -935,7 +937,7 @@ $("task-form").onsubmit = async event => {
     const homework = taskCategory === "作业";
     if ($("task-todos").querySelector("[data-dirty], [data-busy]")) throw new Error("请先确认或取消正在输入的待办事项");
     const links=[...$("task-links").querySelectorAll(".link-edit-row")].map(row=>({label:row.querySelector(".link-label").value.trim(),url:row.querySelector(".link-url").value.trim()})).filter(link=>link.label || link.url);
-    const payload = {category: taskCategory, title: $("task-title").value.trim(), content:$("task-content").value.trim(), location: $("task-location").value.trim(), todos: draftTodos, links, attachments:draftAttachments.map(file=>file.id), axis_id:$("task-axis").value || null,status:homework?$("status").value:["课程","记录"].includes(taskCategory)?"todo":$("task-done").checked?"done":"todo",
+    const payload = {category: taskCategory, title: $("task-title").value.trim(), content:$("task-content").value.trim(), location: $("task-location").value.trim(), todos: draftTodos, links, attachments:draftAttachments.map(file=>file.id), axis_id:$("task-axis").value || null,status:homework?$("status").value:taskCategory==="课程"?"todo":$("task-done").checked?"done":"todo",
       due_at: homework ? inputTime($("due-at").value) : null, starts_at: homework ? null : inputTime($(taskCategory==="记录"?"record-time":"starts-at").value),
       ends_at: homework ? null : inputTime($(taskCategory==="记录"?"record-time":"ends-at").value)};
     payload.details={...(editing?.details || {})};delete payload.details.organizer;
@@ -1021,14 +1023,17 @@ const demoLayout=new ResizeObserver(()=>{
 for(const id of ["guide-install","website-setup","collector-controls","collector-state","cloud-settings","sources-list","sources-dialog"])demoLayout.observe($(id));
 
 function setAuthMode(mode) {
-  authMode=mode;$("invite-field").hidden=mode!=="register";$("recovery-field").hidden=mode!=="recover";
-  $("invite-code").required=mode==="register";$("recovery-code").required=mode==="recover";
+  $("auth-heading").textContent=mode==="register"?"开启你的空间":mode==="recover"?"找回账号":"欢迎回来";
+  $("auth-login").className=mode==="login"?"secondary":"text-button";$("auth-register").className=mode==="register"?"secondary":"text-button";
+  authMode=mode;$("invite-field").hidden=mode!=="register" || publicRegistration;$("recovery-field").hidden=mode!=="recover";
+  $("invite-code").required=mode==="register" && !publicRegistration;$("recovery-code").required=mode==="recover";
   $("password").autocomplete=mode==="login"?"current-password":"new-password";
   $("password-label").textContent=mode==="recover"?"新密码（至少 6 位，含英文和数字）":"密码（至少 6 位，含英文和数字）";
   document.querySelector("#login-form button[type=submit]").textContent=mode==="register"?"创建我的账号":mode==="recover"?"重设密码":"登录看板";
   $("login-error").textContent="";
 }
 function configureAccount(data) {
+  publicRegistration=!!data.public_registration;$("public-user-count").textContent=Number.isInteger(data.registered)?String(data.registered):"—";
   trialMode=!!data.trial;isAdmin=!!data.admin;boardAccount=data.account || (trialMode?"":"personal");accountName=data.username || accountName;registrationOpen=!!data.registration_open;
   updateAccountCard();
   $("trial-auth").hidden=!trialMode;$("auth-recover").hidden=!trialMode;$("account-button").hidden=!trialMode;
@@ -1050,7 +1055,7 @@ $("recovery-form").onsubmit=async event=>{event.preventDefault();event.submitter
 $("login-form").onsubmit = async event => {
   event.preventDefault(); const button = event.submitter; button.disabled = true; $("login-error").textContent = "";
   try {
-    const result=await api(trialMode?`/api/${authMode==="register"?"register":authMode==="recover"?"recover":"login"}`:"/api/login", "POST", {password: $("password").value,...(trialMode?{username:$("username").value,invite:$("invite-code").value.trim(),recovery:$("recovery-code").value.trim()}:{})},30000);
+    const result=await api(trialMode?`/api/${authMode==="register"?"register":authMode==="recover"?"recover":"login"}`:"/api/login", "POST", {password: $("password").value,remember:$("remember-login").checked,...(trialMode?{username:$("username").value,invite:$("invite-code").value.trim(),recovery:$("recovery-code").value.trim()}:{})},30000);
     $("password").value="";$("invite-code").value="";$("recovery-code").value="";
     if(trialMode){boardAccount=result.account;accountName=result.username;isAdmin=!!result.admin;}
     updateAccountCard();await refresh();await startMessages();if(result.recovery)showRecovery(result.recovery);else maybeDemo();

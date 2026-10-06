@@ -27,6 +27,8 @@ globalThis.CampusParsers = (() => {
     if(source==="zhifz") {
       const request=new URL(url,"https://www.zhifz.com");
       if(request.origin!=="https://www.zhifz.com" || request.pathname!=="/yonghu_ceyan" || request.searchParams.get("类型")!=="2" || !/^\d{1,20}$/.test(request.searchParams.get("UID") || ""))return null;
+      const message=[value?.error,value?.message,value?.msg].filter(v=>typeof v==="string").join(" ");
+      if(![true,1].includes(value?.result) && /未登录|请.{0,5}(?:重新登录|先登录)|登录.{0,6}(?:失效|过期)/.test(message))throw new Error("智夫子登录已过期，请重新登录后同步");
       if(![true,1].includes(value?.result) || !Array.isArray(value.data))return null;
       for(const task of value.data) {
         if(!task || !/^\d+$/.test(String(task["测验ID"])) || typeof task["测验名称"]!=="string" || !task["测验名称"].trim())throw new Error("智夫子作业字段发生变化");

@@ -1,6 +1,6 @@
 {
-  "name": "ruchecklist-trial",
-  "pages_build_output_dir": "./dist/trial",
+  "name": "rucapture",
+  "pages_build_output_dir": "./dist/public",
   "compatibility_date": "2026-05-15",
   "vars": {
     "REGISTRATION_OPEN": "true",

@@ -86,7 +86,7 @@ if(!process.env.TRIAL_UI_FIXTURE) test("trial accounts enforce invitations, isol
     for(let i=2;i<30;i++)assert.equal((await client().api("/api/register","POST",{username:`tester_${i}`,password,invite:invites[i]})).status,200);
     assert.equal(db.prepare("SELECT count(*) n FROM trial_users WHERE status='active'").get().n,30);
     assert.equal((await client().api("/api/register","POST",{username:"extra_user",password,invite:"f".repeat(48)})).status,400);
-    assert.throws(()=>partition(env.DB,31));assert.throws(()=>partition(env.DB,"1; DROP TABLE trial_users"));
+    assert.throws(()=>partition(env.DB,301));assert.throws(()=>partition(env.DB,"1; DROP TABLE trial_users"));
     env.REGISTRATION_OPEN="false";assert.equal((await client().api("/api/register","POST",{username:"extra_user",password,invite:invites[0]})).status,403);
   }finally{db.close();}
 });

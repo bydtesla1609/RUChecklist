@@ -14,3 +14,4 @@ wrangler.jsonc
 wrangler.worker.jsonc
 wrangler.trial.jsonc
 wrangler.trial.worker.jsonc
+wrangler.public.jsonc

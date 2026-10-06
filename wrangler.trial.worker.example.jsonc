@@ -8,12 +8,36 @@
     {
       "binding": "DB",
       "database_name": "ruchecklist-trial",
-      "database_id": "REPLACE_WITH_TRIAL_DATABASE_ID"
+      "database_id": "FILL_DATABASE_ID"
+    },
+    {
+      "binding": "STORE_A",
+      "database_name": "rucapture-store-a",
+      "database_id": "FILL_DATABASE_ID"
+    },
+    {
+      "binding": "STORE_B",
+      "database_name": "rucapture-store-b",
+      "database_id": "FILL_DATABASE_ID"
+    },
+    {
+      "binding": "STORE_C",
+      "database_name": "rucapture-store-c",
+      "database_id": "FILL_DATABASE_ID"
     }
   ],
   "triggers": {
     "crons": [
       "* * * * *"
     ]
-  }
+  },
+  "vars": {
+    "CLOUD_INTERNAL": "true"
+  },
+  "services": [
+    {
+      "binding": "CLOUD_DISPATCH",
+      "service": "ruchecklist-trial-sync"
+    }
+  ]
 }

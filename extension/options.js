@@ -13,7 +13,7 @@ if(new URL(location.href).searchParams.has("generic")){
       const granted=await chrome.permissions.request({origins:[`${target.origin}/*`]});
       if(!granted)throw new Error("未授权，不会读取该网站。可再次点击此按钮授权。");
       const result=await chrome.runtime.sendMessage({type:"generic-open"});if(result.error)throw new Error(result.error);
-      $("generic-result").textContent="已打开网页。请登录并进入列表，核对 RUChecklist 预览后确认导入。";
+      $("generic-result").textContent="已打开网页。请登录并进入列表，核对 RUCapture 预览后确认导入。";
     }catch(error){$("generic-result").textContent=error.message;}
   };
 }
@@ -41,7 +41,7 @@ function saveDraft() {
   } catch { $("draft-state").textContent="草稿保存失败，请保持此标签页打开并保存设置。"; }
 }
 chrome.storage.local.get(["boardURL","token","enabled","lastResult","lastTime","sourceURLs"]).then(data=>{
-  const trial=data.boardURL==="https://ruchecklist-trial.pages.dev";$("legacy-settings").hidden=trial;$("options-cloud").hidden=false;$("cloud-frequency").textContent=trial?"30":"15";$("open-board").href=data.boardURL || "https://campus-task-board.pages.dev";
+  const trial=["https://ruchecklist-trial.pages.dev","https://rucapture.pages.dev"].includes(data.boardURL);$("legacy-settings").hidden=trial;$("options-cloud").hidden=false;$("cloud-frequency").textContent=trial?"30":"15";$("open-board").href=data.boardURL || "https://campus-task-board.pages.dev";
   $("url").value=data.boardURL || "https://campus-task-board.pages.dev";$("token").value=data.token || "";$("enabled").checked=!!data.enabled;
   $("result").textContent=data.lastResult ? `${data.lastResult} · ${new Date(data.lastTime).toLocaleString()}` : "尚未连接";
   for(const source of Object.keys(sourceHosts)) $(source).value=data.sourceURLs?.[source] || "";

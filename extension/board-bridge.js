@@ -1,5 +1,5 @@
 (() => {
-  if(window.top!==window || !["https://campus-task-board.pages.dev","https://ruchecklist-trial.pages.dev"].includes(location.origin)) return;
+  if(window.top!==window || !["https://campus-task-board.pages.dev","https://ruchecklist-trial.pages.dev","https://rucapture.pages.dev"].includes(location.origin)) return;
   window.addEventListener("message",async event=>{
     const data=event.data;
     if(event.source!==window || event.origin!==location.origin || data?.kind!=="campus-board-command" || typeof data.id!=="string" || data.id.length>80) return;

@@ -45,7 +45,7 @@ const FIELDS = ["category", "title", "content", "location", "todos", "links", "a
 const stored = (task, field) => ["todos","links","attachments","details"].includes(field) ? JSON.stringify(task[field]) : task[field];
 const FILE_LIMIT=10*1024*1024, STORAGE_LIMIT=100*1024*1024, CHUNK_SIZE=512*1024;
 const now = () => new Date().toISOString();
-export const RELEASE={version:"3.0.0",title:"RUCapture · 记录与规划",items:["新增记录卡片，与安排一起显示在总览","总览支持日历与轴线视图；卡片可归轴、离轴，按时间排列","轴线画布支持拖动、缩放和节点调整","新增可折叠侧栏；课程继续导入并显示在总览","统一卡片操作区，优化待办勾选反馈"]};
+export const RELEASE={version:"3.1.0",title:"RUCapture · 开放体验",items:["开放 300 人注册，原有账号继续使用；登录时可选择自动登录","轴线所有节点支持拖动，新增保存布局，可跨设备恢复","记录支持待完善、已完善两栏及独立统计","新入口 rucapture.pages.dev，旧入口继续可用"]};
 export async function autoArchive(db,time=Date.now()) {
   const stamp=new Date(time).toISOString(),cutoff=new Date(time-7*86400000).toISOString();
   return db.prepare("UPDATE tasks SET archived_at=?,updated_at=?,revision=revision+1 WHERE deleted=0 AND archived_at IS NULL AND category NOT IN ('课程','记录') AND status='done' AND datetime(completed_at)<=datetime(?) AND (archive_restored_at IS NULL OR datetime(archive_restored_at)<=datetime(?))").bind(stamp,stamp,cutoff,cutoff).run();
@@ -72,7 +72,7 @@ async function fileReferences(ids,db) {
   return new Map(results.map(file=>[file.id,file]));
 }
 const sessionHash = request => digest((request.headers.get("Cookie") || "").split(";").map(s => s.trim()).find(s => s.startsWith("board_session="))?.slice(14) || "");
-function cookie(request, token, age) { return `board_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${new URL(request.url).protocol === "https:" ? "; Secure" : ""}`; }
+function cookie(request, token, age) { return `board_session=${token}; Path=/; HttpOnly; SameSite=Strict${age===null?"":`; Max-Age=${age}`}${new URL(request.url).protocol === "https:" ? "; Secure" : ""}`; }
 async function readLimited(request,limit) {
   const reader = request.body?.getReader();
   if (!reader) fail(400, "缺少请求内容");
@@ -142,7 +142,7 @@ export function validate(value, imported=false) {
     const text=value.details?.[name];if(text===undefined)continue;
     if(typeof text!=="string" || text.length>300) fail(400,"日程信息最多 300 字");details[name]=text.trim();
   }
-  return {category,title:title.trim(),content:content.trim(),location:location.trim(),todos:checklist,links,attachments,due_at,starts_at,ends_at,axis_id,status:["课程","记录"].includes(category)?"todo":category!=="作业" && status==="doing"?"todo":status,details};
+  return {category,title:title.trim(),content:content.trim(),location:location.trim(),todos:checklist,links,attachments,due_at,starts_at,ends_at,axis_id,status:category==="课程"?"todo":category!=="作业" && status==="doing"?"todo":status,details};
 }
 function validateAxis(value) {
   const {title,content=""}=value;
@@ -327,9 +327,9 @@ async function route(request, env) {
     await db.batch([
       db.prepare("DELETE FROM sessions WHERE expires<?").bind(stamp),
       db.prepare("DELETE FROM login_attempts WHERE ip=? OR since<?").bind(ip,cutoff),
-      db.prepare("INSERT INTO sessions(hash,expires) VALUES (?,?)").bind(await digest(token),stamp+30*86400000)
+      db.prepare("INSERT INTO sessions(hash,expires) VALUES (?,?)").bind(await digest(token),stamp+(data.remember===true?30:1)*86400000)
     ]);
-    return json({ok:true},200,{"Set-Cookie":cookie(request,token,30*86400)});
+    return json({ok:true},200,{"Set-Cookie":cookie(request,token,data.remember===true?30*86400:null)});
   }
   if(path==="/api/import" && method==="POST") return importTasks(request,db,{...await allSources(env),...(env.TRIAL_MODE?{trial:true}:{})});
   if(path==="/api/academic/timetable" && method==="POST") {
@@ -388,8 +388,9 @@ async function route(request, env) {
     const byId=new Map(files.results.map(file=>[file.id,file]));
     const tables=await db.prepare("SELECT value FROM settings WHERE key LIKE 'timetable:%'").all();
     const axes=await db.prepare("SELECT * FROM axes WHERE deleted=0 ORDER BY created_at,id").all();
+    const axisLayout=await db.prepare("SELECT value FROM settings WHERE key='axis_layout'").first();
     const axisItems=await db.prepare("SELECT * FROM tasks WHERE deleted=0 AND axis_id IN (SELECT id FROM axes WHERE deleted=0)").all();
-    return json({axes:axes.results,axis_items:axisItems.results.map(task=>expose(task,byId)),tasks:tasks.results.map(task=>expose(task,byId)),timetables:tables.results.map(row=>JSON.parse(row.value)),sources:Object.entries(configuration).map(([id,config])=>({id,last_seen:null,task_count:0,imported_count:0,status_count:0,...sources.results.find(source=>source.id===id),...config})),storage:{used:storage.results[0].used,limit:env.TRIAL_MODE?5*1024*1024:STORAGE_LIMIT,file_limit:env.TRIAL_MODE?1024*1024:FILE_LIMIT},server_time:now()});
+    return json({axis_layout:axisLayout?JSON.parse(axisLayout.value):{revision:0,layout:null},axes:axes.results,axis_items:axisItems.results.map(task=>expose(task,byId)),tasks:tasks.results.map(task=>expose(task,byId)),timetables:tables.results.map(row=>JSON.parse(row.value)),sources:Object.entries(configuration).map(([id,config])=>({id,last_seen:null,task_count:0,imported_count:0,status_count:0,...sources.results.find(source=>source.id===id),...config})),storage:{used:storage.results[0].used,limit:env.TRIAL_MODE?5*1024*1024:STORAGE_LIMIT,file_limit:env.TRIAL_MODE?1024*1024:FILE_LIMIT},server_time:now()});
   }
   if(path==="/api/archive" && method==="GET") {
     await autoArchive(db);
@@ -408,6 +409,24 @@ async function route(request, env) {
     const token=randomToken();
     await db.prepare("INSERT INTO settings(key,value) VALUES ('collector_hash',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(await digest(token)).run();
     return json({token});
+  }
+  if(path==="/api/axis-layout" && method==="PUT") {
+    const {layout,revision}=await body(request);
+    if(!Number.isInteger(revision) || revision<0 || !layout || !Array.isArray(layout.lines) || layout.lines.length>100)fail(400,"布局格式不正确");
+    const finite=n=>Number.isFinite(n)&&Math.abs(n)<=50000;
+    if(!layout.camera || ![layout.camera.x,layout.camera.y,layout.camera.z].every(finite) || layout.camera.z<.25 || layout.camera.z>2.5)fail(400,"画布位置不正确");
+    const owned=await db.prepare("SELECT id FROM axes WHERE deleted=0").all(),ids=new Set(owned.results.map(a=>a.id)),seen=new Set();let total=0;
+    for(const line of layout.lines){
+      if(!ids.has(line.id) || seen.has(line.id) || !Array.isArray(line.nodes) || line.nodes.length<2 || (total+=line.nodes.length)>6000)fail(400,"轴线布局不正确");seen.add(line.id);
+      const nodes=new Set();for(const [j,node] of line.nodes.entries()){
+        if(typeof node.id!=="string" || !/^[a-zA-Z0-9-]{1,100}$/.test(node.id) || nodes.has(node.id) || !finite(node.x) || !finite(node.y) || j>0 && node.x-line.nodes[j-1].x<63.9)fail(400,"节点布局不正确");nodes.add(node.id);
+      }
+      if(line.nodes[0].id!=="head" || line.nodes.at(-1).id!=="tail")fail(400,"轴线端点不完整");
+    }
+    const clean={camera:{x:layout.camera.x,y:layout.camera.y,z:layout.camera.z},pivot:Number.isInteger(layout.pivot)?layout.pivot:0,anchor:Number.isInteger(layout.anchor)?layout.anchor:0,lines:layout.lines.map(line=>({id:line.id,nodes:line.nodes.map(({id,x,y})=>({id,x,y}))}))};
+    const value={revision:revision+1,layout:clean};
+    const changed=await db.prepare("INSERT INTO settings(key,value) SELECT 'axis_layout',? WHERE ?=0 OR EXISTS(SELECT 1 FROM settings WHERE key='axis_layout') ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE json_extract(settings.value,'$.revision')=? RETURNING value").bind(JSON.stringify(value),revision,revision).first();
+    if(!changed)fail(409,"布局已在其他页面更新，请刷新后重试");return json(value);
   }
   if(path==="/api/axes" && method==="POST") {
     const data=validateAxis(await body(request)),stamp=now(),id=crypto.randomUUID();

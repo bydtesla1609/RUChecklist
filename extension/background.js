@@ -2,7 +2,7 @@ const SOURCES={yoj:"http://yoj.ruc.edu.cn/index.php/index/course/detail.html",we
 SOURCES.ruc_courses="https://jw.ruc.edu.cn/Njw2017/index.html#/student/student-course-list/";
 SOURCES.ruc_exams="https://jw.ruc.edu.cn/Njw2017/index.html#/student/test-arrange-search/";
 const BOARD_ORIGIN="https://campus-task-board.pages.dev";
-const BOARD_ORIGINS=[BOARD_ORIGIN,"https://ruchecklist-trial.pages.dev"];
+const BOARD_ORIGINS=[BOARD_ORIGIN,"https://ruchecklist-trial.pages.dev","https://rucapture.pages.dev"];
 if(typeof importScripts==="function") importScripts("cloud-routes.js","academic-parser.js","generic-parser.js","generic-background.js");
 function sourceFor(url) {
   const host=new URL(url).hostname;
@@ -61,7 +61,7 @@ async function upload(message,sender,generic=false) {
   const {boardURL,token,enabled,configuredSources,importCache={},sourceResults={}}=await chrome.storage.local.get(["boardURL","token","enabled","configuredSources","importCache","sourceResults"]);
   if(!enabled || !boardURL || !token) return {skipped:true};
   if(!generic && Array.isArray(configuredSources) && !configuredSources.includes(source))return {skipped:true};
-  if(source==="ruc_courses" && message.academic && boardURL!=="https://ruchecklist-trial.pages.dev") {
+  if(source==="ruc_courses" && message.academic && boardURL===BOARD_ORIGIN) {
     const response=await fetch(`${boardURL}/api/import`,{method:"POST",credentials:"omit",headers:{"Content-Type":"application/json",Authorization:`Bearer ${token}`},body:JSON.stringify({source,academic:message.academic}),signal:AbortSignal.timeout(45000)});
     const data=await response.json();if(!response.ok || data.error)throw new Error(data.error || "课表导入失败");
     const time=new Date().toISOString();sourceResults[source]={time,count:data.count,changed:data.changed,error:null};

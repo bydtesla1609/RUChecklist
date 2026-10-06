@@ -125,7 +125,7 @@ try {
   await mobile.addInitScript(()=>localStorage.setItem("ruchecklist-demo:personal","seen"));
   const phone = await mobile.newPage(); phone.on("pageerror", error => errors.push(error.message));
   await login(phone); await category(phone, "活动").click();
-  assert.equal(await phone.locator(".brand-icon img").count(),2);
+  assert.equal(await phone.locator(".brand-icon img").count(),1);
   const alignment=await phone.locator(".brand .brand-icon").evaluate(icon=>{const box=icon.getBoundingClientRect(),svg=icon.querySelector("img").getBoundingClientRect();return Math.abs(box.top+box.height/2-svg.top-svg.height/2)<1 && Math.abs(box.left+box.width/2-svg.left-svg.width/2)<1;});assert.equal(alignment,true);
   assert.deepEqual(await (await mobile.request.get(origin+fileURL)).body(),png);
   assert.ok(await phone.getByRole("link",{name:"课程参考资料 ↗"}).isVisible());

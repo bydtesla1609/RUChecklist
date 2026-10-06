@@ -48,7 +48,11 @@ try {
   assert.equal(await page.title(),"RUCapture");
   assert.equal(await category(page,"课程").count(),0);assert.equal(await category(page,"记录").count(),1);
   assert.equal(await page.locator('.nav-heading,#board-caption').count(),0);
-  await page.locator('#sidebar-toggle').click();await page.waitForTimeout(350);
+  const initialY=await page.locator('.brand-icon').first().evaluate(n=>n.getBoundingClientRect().y);
+  const toggleBox=await page.locator('#sidebar-toggle').boundingBox(),brandBox=await page.locator('.brand-icon').first().boundingBox();assert.ok(toggleBox.x>brandBox.x);
+  await page.locator('#sidebar-toggle').click();
+  for(let frame=0;frame<8;frame++){await page.waitForTimeout(35);assert.ok(Math.abs(await page.locator('.brand-icon').first().evaluate(n=>n.getBoundingClientRect().y)-initialY)<1,'brand has no vertical jump');}
+  await page.waitForTimeout(100);
   assert.equal(await page.locator('#workspace').evaluate(n=>n.classList.contains('sidebar-collapsed')),true);
   assert.ok((await page.locator('.sidebar').boundingBox()).width<100);
   assert.equal(await page.locator('#user-avatar').isVisible(),true);
@@ -69,10 +73,20 @@ try {
   assert.notEqual(await page.locator('.axis-line').nth(1).locator('.axis-card').getAttribute('transform'),'translate(220,220)');
   assert.equal(await page.locator('#task-dialog').isVisible(),false,'node drag does not open editor');
   const scale=await page.evaluate(()=>axisScene.camera.z);await page.getByRole('button',{name:'放大画布',exact:true}).click();assert.ok(await page.evaluate(()=>axisScene.camera.z)>scale);
-  await page.getByRole('button',{name:'复位画布',exact:true}).click();assert.equal(await page.locator('.axis-line').nth(1).locator('.axis-head').getAttribute('transform'),neighbor);
+  await page.getByRole('button',{name:'复位画布',exact:true}).click();assert.equal(await page.evaluate(()=>axisScene.camera.z),1);
+  for(const selector of ['.axis-head','.axis-tail']){
+    const node=page.locator(selector).first(),before=await node.getAttribute('transform'),bounds=await node.boundingBox();
+    await page.mouse.move(bounds.x+bounds.width/2,bounds.y+bounds.height/2);await page.mouse.down();await page.waitForTimeout(200);await page.mouse.move(bounds.x+bounds.width/2+25,bounds.y+bounds.height/2+50,{steps:10});await page.mouse.up();
+    assert.notEqual(await node.getAttribute('transform'),before,`${selector} is draggable`);
+    assert.equal(await page.locator('#axis-dialog').isVisible(),false);assert.equal(await page.locator('#axis-add-dialog').isVisible(),false);
+  }
+  await page.locator('#save-layout').click();await page.waitForFunction(()=>!axisScene.dirty);
+  const savedLayout=await page.evaluate(()=>JSON.stringify(axisScene.lines));
+  await page.reload();await page.locator('#workspace').waitFor();await page.waitForFunction(()=>messageReady);if(await page.locator('#messages-dialog').isVisible())await page.locator('#messages-read').click();await page.locator('[data-view="axes"]').click();
+  assert.equal(await page.evaluate(()=>JSON.stringify(axisScene.lines)),savedLayout,'saved layout survives reload');
   await page.locator('.axis-tail').first().click();await page.locator('#axis-add-dialog').getByRole('button',{name:'记录',exact:true}).click();
   assert.equal(await page.locator('#task-axis').inputValue(),await page.evaluate(()=>axes[0].id));
-  assert.equal(await page.locator('#done-field').isVisible(),false);assert.equal(await page.locator('#range-fields').isVisible(),false);
+  assert.equal(await page.locator('#done-field').isVisible(),true);assert.equal(await page.locator('#range-fields').isVisible(),false);
   await page.locator('#task-title').fill('第一张照片');await page.locator('#record-time').fill('2026-10-06T20:00');await page.locator('#task-content').fill('看见树叶上的纹理');
   await page.locator('#save-task').click();await page.locator('#task-dialog').waitFor({state:'hidden'});
   assert.equal(await page.evaluate(()=>axisItems.filter(t=>t.axis_id===axes[0].id).sort(chronological)[0].title),'第一张照片');
@@ -81,7 +95,10 @@ try {
   assert.equal(await page.evaluate(()=>tasks.some(t=>t.title==='第一张照片' && !t.axis_id)),true);
   await page.getByRole('button',{name:'关闭轴线',exact:true}).click();
   await page.screenshot({path:'data/screenshots/capture-axes.png',animations:'disabled',fullPage:true});
-  await category(page,'记录').click();assert.equal(await page.locator('.record-cards .task').count(),2);assert.equal(await page.locator('.summary').isVisible(),false);
+  await category(page,'记录').click();assert.equal(await page.locator('.record-column .task').count(),2);assert.equal(await page.locator('.summary').isVisible(),true);
+  assert.deepEqual(await page.locator('.summary>div>span:first-child').allTextContents(),['记录总数','近七天记录数','今日记录数','待完善记录数']);
+  await page.getByRole('checkbox',{name:'已完善：第一张照片',exact:true}).check();await page.waitForFunction(()=>tasks.find(t=>t.title==='第一张照片').status==='done');
+  assert.equal(await page.locator('.record-column').nth(1).locator('.task').count(),1);
   await page.screenshot({path:'data/screenshots/capture-records.png',animations:'disabled',fullPage:true});
   await category(page,'作业').click();const card=page.locator('article.task').first();
   let requests=0;await page.route('**/api/tasks/*',async route=>{if(route.request().method()==='PATCH'){requests++;await new Promise(resolve=>setTimeout(resolve,250));}await route.continue();});

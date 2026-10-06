@@ -10,18 +10,34 @@
 </head>
 <body>
 <section id="login" class="login" hidden>
+  <header class="landing-header"><a href="/" class="landing-brand"><img src="/static/icon.svg" width="36" height="36" alt=""><strong>RUCapture</strong></a><span class="landing-edition">开放体验 · v3.1</span></header>
+  <div class="landing-grid"><div class="landing-story">
+    <p class="landing-kicker"><span></span> 记录与规划，在同一个空间</p>
+    <h1>留住此刻。<br><em>向下一步出发。</em></h1>
+    <p class="landing-intro">安排待办，写下日常。用轴线把一路的行动与感受连起来。</p>
+    <div class="landing-art" aria-label="日历、记录与轴线的功能示意">
+      <div class="art-glow"></div>
+      <svg viewBox="0 0 620 270" aria-hidden="true"><defs><linearGradient id="landing-line"><stop stop-color="#aa9aff"/><stop offset="1" stop-color="#77d7ce"/></linearGradient></defs><path class="art-path" d="M25 170C150 170 120 80 240 100S405 210 575 80"/><path class="art-path second" d="M25 225C165 225 195 167 308 180S425 260 575 205"/><circle cx="65" cy="166" r="7"/><circle cx="240" cy="100" r="8"/><circle cx="403" cy="161" r="7"/><circle cx="575" cy="80" r="10"/><circle cx="125" cy="209" r="7"/><circle cx="308" cy="180" r="7"/><circle cx="500" cy="230" r="7"/></svg>
+      <div class="art-card art-plan"><span>日历规划</span><strong>为重要的事，留出时间。</strong><div class="art-week"><i>一</i><i>二</i><i class="selected">三</i><i>四</i><i>五</i><i>六</i><i>日</i></div></div>
+      <div class="art-card art-note"><span>今日记录</span><strong>一个想法，一点进步。</strong><div class="art-note-lines"><i></i><i></i></div></div>
+      <span class="art-chip">一条轴线 · 一段过程</span>
+    </div>
+    <div class="landing-stats"><div><strong id="public-user-count">—</strong><span>已注册用户</span></div><div><strong>300</strong><span>本阶段名额</span></div><div><strong>免费</strong><span>开放体验</span></div></div>
+  </div>
   <form id="login-form" class="login-card">
-    <div class="brand-icon" aria-hidden="true"><img src="/static/icon.svg" alt="" width="56" height="56"></div><h1 class="login-brand">RUCapture</h1>
-    <div id="trial-auth" hidden><p id="trial-notice" class="error" hidden></p><div class="auth-tabs"><button id="auth-login" type="button" class="secondary">登录</button><button id="auth-register" type="button" class="text-button">邀请码注册</button></div><label for="username">用户名</label><input id="username" autocomplete="username" minlength="3" maxlength="24" placeholder="3–24 位字母、数字或下划线"><div id="invite-field" hidden><label for="invite-code">邀请码</label><input id="invite-code" autocomplete="off" spellcheck="false"></div><div id="recovery-field" hidden><label for="recovery-code">账号恢复码</label><input id="recovery-code" autocomplete="off" spellcheck="false"></div></div>
+    <div class="login-card-heading"><h2 id="auth-heading">欢迎回来</h2><p>登录你的记录与规划空间</p></div>
+    <div id="trial-auth" hidden><p id="trial-notice" class="error" hidden></p><div class="auth-tabs"><button id="auth-login" type="button" class="secondary">登录</button><button id="auth-register" type="button" class="text-button">注册</button></div><label for="username">用户名</label><input id="username" autocomplete="username" minlength="3" maxlength="24" placeholder="3–24 位字母、数字或下划线"><div id="invite-field" hidden><label for="invite-code">邀请码</label><input id="invite-code" autocomplete="off" spellcheck="false"></div><div id="recovery-field" hidden><label for="recovery-code">账号恢复码</label><input id="recovery-code" autocomplete="off" spellcheck="false"></div></div>
     <label id="password-label" for="password">访问密码</label><input id="password" type="password" autocomplete="current-password" required>
 
+    <label class="remember-control"><input id="remember-login" type="checkbox">自动登录 <small>30 天内保持登录</small></label>
     <p id="login-error" class="error" role="alert"></p><button type="submit" class="primary">进入看板 <span aria-hidden="true">→</span></button>
     <button id="auth-recover" type="button" class="text-button" hidden>忘记密码？使用恢复码</button>
-  </form>
+  </form></div>
+  <div class="landing-features"><div><b>▦</b><strong>日历规划</strong><span>作业、考试与日常安排</span></div><div><b>✎</b><strong>随时记录</strong><span>想法、感受与生活片段</span></div><div><b>⌁</b><strong>轴线串联</strong><span>把卡片放回自己的过程</span></div><div><b>↻</b><strong>跨端同步</strong><span>电脑与手机，同一个空间</span></div></div>
 </section>
 <div id="workspace" class="workspace" hidden>
   <aside class="sidebar">
-    <div class="brand-row"><button id="sidebar-toggle" class="sidebar-toggle" aria-label="收起侧栏" aria-expanded="true" title="收起侧栏"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="4"/><path d="M9 4v16"/></svg></button><a class="brand" href="/" aria-label="RUCapture首页"><span class="brand-icon" aria-hidden="true"><img src="/static/icon.svg" alt="" width="56" height="56"></span><span class="brand-copy"><span class="wordmark"><b>RU</b>Capture</span><small id="app-version">v3.0.0</small></span></a></div>
+    <div class="brand-row"><a class="brand" href="/" aria-label="RUCapture首页"><span class="brand-icon" aria-hidden="true"><img src="/static/icon.svg" alt="" width="56" height="56"></span><span class="brand-copy"><span class="wordmark"><b>RU</b>Capture</span><small id="app-version">v3.1.0</small></span></a><button id="sidebar-toggle" class="sidebar-toggle" aria-label="收起侧栏" aria-expanded="true" title="收起侧栏"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="4"/><path d="M9 4v16"/></svg></button></div>
     <nav id="categories" aria-label="校园板块"></nav>
     <div class="sidebar-bottom">
       <button id="demo-button" class="nav-button" aria-label="使用演示"><span>使用演示</span></button>
@@ -33,7 +49,7 @@
   </aside>
   <main>
     <section class="heading"><div><h1 id="view-title">总览</h1></div><div class="add-control"><button id="add-task" class="primary" aria-expanded="false"><span aria-hidden="true">＋</span> 添加卡片</button><div id="add-menu" class="add-menu" hidden aria-label="选择任务板块"></div></div></section>
-    <section class="summary" aria-label="任务概况"><div><span>待完成</span><strong id="count-open">0</strong><small>按截止 / 结束时间从近到远</small><span class="stat-art" aria-hidden="true">◌</span></div><div><span>未来 7 天到期</span><strong id="count-soon">0</strong><small>按截止 / 结束时间从近到远</small><span class="stat-art" aria-hidden="true">↗</span></div><div><span>已逾期</span><strong id="count-overdue">0</strong><small>已过截止 / 结束时间，且尚未完成</small><span class="stat-art" aria-hidden="true">⌁</span></div><div><span>已完成</span><strong id="count-done">0</strong><small>按完成时间倒序 · 满 7 天自动归档</small><span class="stat-art" aria-hidden="true">✓</span></div></section>
+    <section class="summary" aria-label="任务概况"><div><span>待完成</span><strong id="count-open">0</strong><small></small><span class="stat-art" aria-hidden="true">◌</span></div><div><span>未来 7 天到期</span><strong id="count-soon">0</strong><small></small><span class="stat-art" aria-hidden="true">↗</span></div><div><span>已逾期</span><strong id="count-overdue">0</strong><small></small><span class="stat-art" aria-hidden="true">⌁</span></div><div><span>已完成</span><strong id="count-done">0</strong><small></small><span class="stat-art" aria-hidden="true">✓</span></div></section>
     <div id="overview-views" class="overview-views" role="group" aria-label="总览视图"><button data-view="calendar" aria-pressed="true">▦ 日历</button><button data-view="axes" aria-pressed="false">⌁ 轴线</button></div>
     <div id="board" class="board" aria-live="polite"></div>
     <p id="load-error" class="error" role="alert"></p>
@@ -65,7 +81,7 @@
     <div id="task-links" class="resource-editor"></div>
     <p id="task-source" class="source-original" hidden></p>
     <p id="task-completed" class="hint" hidden></p><div id="homework-status"><label for="status">进度</label><select id="status"><option value="todo">待开始</option><option value="doing">进行中</option><option value="done">已完成</option></select></div>
-    <label id="done-field" class="completion-control" hidden><input id="task-done" type="checkbox">已完成</label>
+    <label id="done-field" class="completion-control" hidden><input id="task-done" type="checkbox"><span id="done-label">已完成</span></label>
     <p id="task-error" class="error" role="alert"></p>
     <div class="dialog-actions"><button type="button" class="secondary close-dialog">取消</button><button id="save-task" class="primary" type="submit">保存卡片</button></div>
   </form>
@@ -82,8 +98,8 @@
   <div class="dialog-heading"><div><h2>连接你的网站</h2></div><button class="icon-button close-dialog" aria-label="关闭">×</button></div>
   <p class="muted guide-intro">首次在电脑浏览器中完成下面的配置清单。之后登录同一个账号，手机也能看到同步的任务。</p>
   <details id="guide-install" class="guide-step" open><summary><span class="step-number">1</span><span>安装或更新同步扩展<small id="install-state">只需安装一次</small></span></summary>
-    <div id="collector-install" class="step-body"><p class="hint">扩展最新版 <strong>v1.9.1</strong>。网页更新只需刷新；只有扩展发布新版时才需要更新本机文件。已保存的任务和附件会保留。</p>
-    <a class="secondary extension-download" href="/extension.zip?v=1.9.1" download="RUCapture-extension.zip">下载扩展 v1.9.1</a>
+    <div id="collector-install" class="step-body"><p class="hint">扩展最新版 <strong>v1.9.2</strong>。网页更新只需刷新；只有扩展发布新版时才需要更新本机文件。已保存的任务和附件会保留。</p>
+    <a class="secondary extension-download" href="/extension.zip?v=1.9.2" download="RUCapture-extension.zip">下载扩展 v1.9.2</a>
     <h4>首次安装</h4><ol><li>下载后右键选择“全部解压缩”，记住其中的 <strong>extension</strong> 文件夹位置。</li><li>从浏览器菜单打开“扩展程序 → 管理扩展”。<button id="copy-extension-page" class="text-button" type="button">复制管理页地址</button></li><li>开启“开发人员模式”，点“加载解压缩的扩展”，选择该 <strong>extension</strong> 文件夹。</li></ol>
     <h4>已安装：更新与重新加载</h4><ol><li>如果上方提示扩展有新版，下载并解压，将新版 <strong>extension 内的文件</strong>复制到原安装文件夹，选择“替换目标中的文件”。版本已是最新时跳过这一步。</li><li>点击下面“打开扩展设置”，在设置页点<strong>“重新加载此扩展”</strong>，等待设置页重新打开并核对顶部版本。也可以在管理扩展页面点击重新加载图标。</li><li>刷新本看板，再点击“重新检测”。无需卸载扩展，已有任务和附件不会被清空。</li></ol><p class="hint">重新加载只启用本机已有文件，不会下载新版；若仍显示旧版本，请核对替换的是否为原安装文件夹。</p>
     <button id="collector-options" class="secondary" type="button" disabled>打开扩展设置</button>

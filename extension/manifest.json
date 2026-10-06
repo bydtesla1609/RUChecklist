@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "RUChecklist · 校园同步",
-  "version": "1.9.1",
+  "name": "RUCapture · 校园同步",
+  "version": "1.9.2",
   "description": "将已登录的教学网站作业、人大课表及考试日程同步至个人看板。",
   "permissions": [
     "storage",
@@ -23,7 +23,8 @@
     "https://k.ruc.edu.cn/*",
     "https://ruc.thusaac.com/*",
     "http://yoj.ruc.edu.cn/*",
-    "https://yoj.ruc.edu.cn/*"
+    "https://yoj.ruc.edu.cn/*",
+    "https://rucapture.pages.dev/*"
   ],
   "optional_host_permissions": [
     "https://*/*",
@@ -79,7 +80,8 @@
     {
       "matches": [
         "https://campus-task-board.pages.dev/*",
-        "https://ruchecklist-trial.pages.dev/*"
+        "https://ruchecklist-trial.pages.dev/*",
+        "https://rucapture.pages.dev/*"
       ],
       "js": [
         "board-bridge.js"

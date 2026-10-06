@@ -24,7 +24,7 @@ test("Zhifz imports list metadata and updates completion across latest/past list
     assert.deepEqual(parsed.map(task=>task.status),["todo","todo","done","done"]);
     assert.ok(parsed.every(task=>task.due_at===null && task.source_url===SOURCES.zhifz.url));
     assert.ok(!JSON.stringify(parsed).includes("must-not-be-imported"));
-    assert.equal(CampusParsers.parse("zhifz",recipe.url,{result:false,error:"未登录"}),null);
+    assert.throws(()=>CampusParsers.parse("zhifz",recipe.url,{result:false,error:"未登录"}),/登录已过期/);
     assert.deepEqual(CampusParsers.parse("zhifz",recipe.url,{result:true,data:[]}),[]);
     assert.throws(()=>CampusParsers.parse("zhifz",recipe.url,{result:true,data:[{...original[0],状态:5}]}),/状态/);
     await enableCloud(env);await saveCloudRecipe(env,"zhifz",recipe);
