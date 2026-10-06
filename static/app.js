@@ -16,7 +16,8 @@ let sourceLinksState=null, boardAccount="personal", trialMode=false;
 let publicRegistration=false;
 let authMode="login", accountName="", registrationOpen=false, isAdmin=false;
 let editingWebsite=-1, websiteBusy=false;
-let syncStep=1,syncStepRevision=0,cloudPanelLoading=false;
+let syncStep=1,syncVisited=1,syncExecuted=false,cloudPanelLoading=false;
+const syncGuideVersion=document.getElementById("app-version").textContent+":1.9.3";
 let archiveCategory="全部", archiveItems=[], archiveTotal=0, archiveSequence=0;
 let selectedDay = localInput(new Date()).slice(0,10), calendarMonth = selectedDay.slice(0,7);
 
@@ -56,7 +57,7 @@ function showLogin() {
   $("archive-list").replaceChildren(); $("archive-detail").replaceChildren();
   $("board").replaceChildren(); $("sources-list").replaceChildren(); collectorState=null; cloudState=null;
   sourceLinksState=null;if(trialMode)boardAccount="";
-  syncStep=1;cloudPanelLoading=false;$("cloud-panel").replaceChildren();
+  syncStep=syncVisited=1;syncExecuted=false;cloudPanelLoading=false;$("cloud-panel").replaceChildren();
   editing=null;deleting=null;draftTodos=[];draftAttachments=[];
   $("task-form").reset();$("task-todos").replaceChildren();$("task-links").replaceChildren();$("task-attachments").replaceChildren();$("source-url").value="";$("website-list").replaceChildren();$("source-links-form").hidden=true;$("recovery-value").textContent="";$("account-password").value="";
 }
@@ -670,28 +671,37 @@ function collectorCommand(command,extra={},timeout=18000) {
     collectorRequests.set(id,{resolve,reject,timer});window.postMessage({kind:"campus-board-command",id,command,account:boardAccount,...extra},location.origin);
   });
 }
+function saveSyncProgress(){
+  if($("demo-dialog").open)return;
+  try{localStorage.setItem(`rucapture-sync-guide:${boardAccount}`,JSON.stringify({version:syncGuideVersion,step:syncStep,visited:syncVisited,executed:syncExecuted}));}catch{}
+}
+function loadSyncProgress(){
+  syncStep=syncVisited=1;syncExecuted=false;
+  try{const saved=JSON.parse(localStorage.getItem(`rucapture-sync-guide:${boardAccount}`));
+    if(saved?.version===syncGuideVersion && Number.isInteger(saved.step) && saved.step>=1 && saved.step<=5 && Number.isInteger(saved.visited) && saved.visited>=saved.step && saved.visited<=5){syncStep=saved.step;syncVisited=saved.visited;syncExecuted=saved.executed===true;}
+  }catch{}
+}
 function syncStepStates(){
-  const configured=(sourceLinksState || []).flatMap(link=>link.source==="ruc_courses"?["ruc_courses","ruc_exams"]:link.source?[link.source]:[]);
-  const synced=configured.length>0 && configured.every(id=>{const source=sources.find(item=>item.id===id),cloud=cloudState?.enabled && cloudState.sources?.[id];return source && !needsLogin(source) && (cloud?.authorized ? !!cloud.last_success && !cloud.error : !!source.last_seen && !source.error);});
-  return [!!collectorState && (collectorState.version || "0").localeCompare("1.9.3",undefined,{numeric:true})>=0,!!collectorState?.connected,!!sourceLinksState?.length,!!cloudState?.enabled,synced];
+  return [!!collectorState && (collectorState.version || "0").localeCompare("1.9.3",undefined,{numeric:true})>=0,!!collectorState?.connected,!!sourceLinksState?.length,!!cloudState?.enabled,syncExecuted];
 }
 function updateSyncSteps(){
   const states=syncStepStates();
-  document.querySelectorAll("#sync-progress button").forEach((button,i)=>{button.classList.toggle("complete",states[i]);button.setAttribute("aria-selected",String(syncStep===i+1));button.tabIndex=syncStep===i+1?0:-1;button.setAttribute("aria-label",`第 ${i+1} 步：${button.lastElementChild.textContent}，${states[i]?"已完成":"未完成"}`);});
+  // Old website/cloud settings do not complete steps the user has not reached in this version.
+  document.querySelectorAll("#sync-progress li").forEach((point,i)=>{const done=i<syncVisited && states[i] && (i===4 || states[0]);point.classList.toggle("complete",done);if(syncStep===i+1)point.setAttribute("aria-current","step");else point.removeAttribute("aria-current");point.setAttribute("aria-label",`第 ${i+1} 步：${point.lastElementChild.textContent}，${done?"已完成":"未完成"}`);});
   $("sync-prev").disabled=syncStep===1;
   $("sync-next").textContent=syncStep===5?"完成":syncStep===4 && !states[3]?"暂不开启，继续":"下一步";
-  $("sync-next").disabled=syncStep<4 && !states[syncStep-1];
+  $("sync-next").disabled=syncing || syncStep!==4 && !states[syncStep-1];
 }
 function setSyncStep(step){
-  syncStep=step;syncStepRevision++;
+  syncStep=step;
+  if(!$("demo-dialog").open){syncVisited=Math.max(syncVisited,step);saveSyncProgress();}
   document.querySelectorAll("#sources-dialog .guide-step").forEach(panel=>panel.hidden=Number(panel.dataset.step)!==step);
   updateSyncSteps();
   if(step===4 && $("sources-dialog").open)ensureCloudPanel();
 }
-for(const button of document.querySelectorAll("#sync-progress button"))button.onclick=()=>setSyncStep(Number(button.dataset.step));
-$("sync-progress").onkeydown=event=>{const delta={ArrowLeft:-1,ArrowRight:1}[event.key];if(delta || ["Home","End"].includes(event.key)){event.preventDefault();setSyncStep(event.key==="Home"?1:event.key==="End"?5:Math.max(1,Math.min(5,syncStep+delta)));$("sync-tab-"+syncStep).focus();}};
 $("sync-prev").onclick=()=>setSyncStep(Math.max(1,syncStep-1));
-$("sync-next").onclick=()=>{if(syncStep===5){$("sources-dialog").close();return;}if(syncStep===4 && !cloudState?.enabled)localStorage.setItem(`rucapture-cloud-skip:${boardAccount}`,"1");setSyncStep(syncStep+1);};
+$("sync-existing").onclick=()=>setSyncStep(5);
+$("sync-next").onclick=()=>{if($("sync-next").disabled)return;if(syncStep===5){$("sources-dialog").close();return;}setSyncStep(syncStep+1);};
 async function ensureCloudPanel(){
   if(cloudPanelLoading || !collectorState?.connected || !cloudState?.available || !syncStepStates()[0])return;
   if(document.querySelector("#cloud-panel iframe"))return;
@@ -707,16 +717,17 @@ async function ensureCloudPanel(){
 window.addEventListener("message",async event=>{
   const frame=document.querySelector("#cloud-panel iframe");
   if(!frame || event.source!==frame.contentWindow || event.origin!==frame.src.split("/").slice(0,3).join("/"))return;
-  if(event.data?.kind==="rucapture-cloud-size"){if(Number.isFinite(event.data.height))frame.style.height=`${Math.max(140,Math.min(360,event.data.height))}px`;return;}
+  if(event.data?.kind==="rucapture-cloud-size"){if(Number.isFinite(event.data.height))$("cloud-panel").style.setProperty("--cloud-height",`${Math.max(140,Math.min(360,event.data.height))}px`);return;}
   if(event.data?.kind!=="rucapture-cloud-enabled")return;
   const session=syncSession;await checkCloud();if(session!==syncSession)return;
-  if(cloudState?.enabled){localStorage.removeItem(`rucapture-cloud-skip:${boardAccount}`);setSyncStep(5);notice("云端同步已开启，可在这里查看各网站的同步结果。");}
+  if(cloudState?.enabled)notice("云端同步已开启，点击“下一步”继续。");
 });
 function updateSyncControls() {
   const connected=!!collectorState?.connected;
   $("collector-controls").hidden=!collectorState || connected;
   $("install-state").textContent=collectorState?`已安装 v${collectorState.version} · ${syncStepStates()[0]?"已是最新版本":"请更新至 v1.9.3"}`:"仅需在电脑上安装一次";
   $("collector-options").disabled=!collectorState;
+  $("sync-existing").hidden=!!collectorState || !cloudState?.enabled;
   $("browser-settings").hidden=!connected;
   $("collector-scan").disabled=syncing || !(cloudState?.enabled || (connected && collectorState.enabled));
   $("collector-scan").textContent=syncing?"正在同步…":"一键同步";
@@ -733,6 +744,7 @@ async function checkCollector() {
     const result=await collectorCommand("status",{},1800);
     if(session!==syncSession || sequence!==collectorCheckSequence)return;
     collectorState=result;
+    if(!syncStepStates()[0]){syncVisited=1;syncExecuted=false;saveSyncProgress();}
     $("collector-state").textContent=collectorState.connected?`浏览器扩展已连接 · v${collectorState.version}${collectorState.enabled?"":" · 浏览器导入已暂停"}`:"已检测到扩展，点击下方按钮连接。";
     $("collector-enabled").checked=collectorState.enabled;
   }catch {
@@ -781,7 +793,7 @@ async function saveWebsiteLinks(urls,submitted=null) {
       catch(error){$("source-links-result").textContent=`已保存，可点击一键同步重试：${error.message}`;}
     }
   }catch(error){$("source-links-result").textContent=error.message;}
-  finally{websiteBusy=false;$("save-source-link").disabled=false;renderWebsiteLinks();updateSyncSteps();if(submitted && sourceLinksState?.some(link=>link.url===new URL(submitted).href) && syncStep===3)setSyncStep(4);}
+  finally{websiteBusy=false;$("save-source-link").disabled=false;renderWebsiteLinks();updateSyncSteps();}
 }
 $("add-source-link").onclick=()=>openWebsiteInput();$("cancel-source-link").onclick=closeWebsiteInput;
 $("source-links-form").onsubmit=event=>{
@@ -791,7 +803,7 @@ $("source-links-form").onsubmit=event=>{
 };
 $("collector-recheck").onclick=async()=>{
   await checkCollector();
-  if(collectorState){if(syncStepStates()[0])setSyncStep(2);}
+  if(collectorState){if(syncStepStates()[0])notice("已检测到新版扩展，点击“下一步”继续。");}
   else {sessionStorage.setItem("resume-setup","1");location.reload();}
 };
 $("copy-extension-page").onclick=async()=>{const url=/Edg\//.test(navigator.userAgent)?"edge://extensions":"chrome://extensions";try{await navigator.clipboard.writeText(url);notice("已复制，请粘贴到浏览器地址栏打开");}catch{notice(`请复制 ${url} 到浏览器地址栏`);}};
@@ -801,7 +813,7 @@ $("collector-connect").onclick=async()=>{
     await collectorCommand("status",{},1800);
     const {token}=await api("/api/collector-token","POST",{});
     await collectorCommand("pair",{token});await checkCollector();
-    setSyncStep(3);notice("已连接，可以添加网站。");
+    notice("已连接，点击“下一步”添加网站。");
   }catch(error){$("source-error").textContent=error.message;}finally{$("collector-connect").disabled=false;}
 };
 function requireSelectiveSync(source) {
@@ -815,15 +827,17 @@ function requireSelectiveSync(source) {
 }
 async function syncSources(source) {
   if(syncing)return;
+  const session=syncSession,markExecuted=()=>{if(session!==syncSession)return;syncExecuted=true;saveSyncProgress();updateSyncSteps();};
   syncing=true;updateSyncControls();renderSources();$("source-error").textContent="";
   try {
     const jobs=[],cloudEligible=!source || !source.startsWith("web:") && !source.startsWith("ruc_") && !sources.find(item=>item.id===source)?.browser_only;
     if(collectorState?.connected && collectorState.enabled && (source || sourceLinksState?.some(link=>link.generic || ["zhifz","yoj","weilai","tuoj"].includes(link.source))))requireSelectiveSync(source);
     if(cloudState?.enabled && cloudEligible)jobs.push(api("/api/cloud/run","POST",source?{source}:{},60000).then(result=>{
       if(result.running)throw new Error("云端正在同步，请稍后再试");
+      markExecuted();
       const errors=Object.values(result).filter(item=>item?.error).map(item=>item.error);if(errors.length)throw new Error(errors.join("；"));
     }));
-    if(collectorState?.connected && collectorState.enabled && sourceLinksState?.some(link=>link.source))jobs.push(collectorCommand("scan",source?{source}:{}));
+    if(collectorState?.connected && collectorState.enabled && sourceLinksState?.some(link=>link.source))jobs.push(collectorCommand("scan",source?{source}:{}).then(markExecuted));
     if(!jobs.length)throw new Error(source?.startsWith("ruc_")?"教务同步需要在电脑浏览器连接扩展并开启浏览器导入。":"请先连接扩展并添加需要同步的网站。");
     const results=await Promise.allSettled(jobs),errors=results.filter(r=>r.status==="rejected").map(r=>r.reason.message);
     await refresh();await checkCloud();
@@ -955,7 +969,7 @@ function openTask(task = null) {
   if(task){const link=taskSourceLink(task);if(link)$("task-source").append(link);}
   $("task-todos").replaceChildren(checklist(draftTodos, async todos => { draftTodos = todos; }, true));
   $("status").value = task?.status || "todo";enhanceSelect($("status"));
-  $("task-completed").hidden=["课程","记录"].includes(taskCategory) || !task?.completed_at; $("task-completed").textContent=task?.completed_at ? `完成时间 · ${formatTime(task.completed_at,true)}（重新打开任务后再次完成会重新计时）` : "";
+  $("task-completed").hidden=["课程","记录"].includes(taskCategory) || !task?.completed_at; $("task-completed").textContent=task?.completed_at ? `完成时间 · ${formatTime(task.completed_at,true)}（再次从未完成状态更改为已完成后会重新统计时间。）` : "";
   $("due-at").value = localInput(task?.due_at); $("starts-at").value = localInput(task?.starts_at); $("ends-at").value = localInput(task?.ends_at);
   toggleDates(); $("task-dialog").showModal();
 }
@@ -977,10 +991,7 @@ document.addEventListener("keydown", event => { if (event.key === "Escape" && !$
 $("add-task").onclick = startAdd;
 $("sources-button").onclick = async () => {
   renderSources();$("sources-dialog").showModal();$("source-error").textContent="";setSyncStep(syncStep);
-  const session=syncSession,revision=syncStepRevision;await Promise.all([loadSourceLinks(),checkCollector(),checkCloud()]);
-  if(session!==syncSession || revision!==syncStepRevision || !$("sources-dialog").open || $("demo-dialog").open)return;
-  const states=syncStepStates(),skip=localStorage.getItem(`rucapture-cloud-skip:${boardAccount}`)==="1";
-  const next=states.findIndex((done,i)=>!done && !(i===3 && skip));setSyncStep(states[4] || sources.some(needsLogin)?5:next<0?5:next+1);
+  await Promise.all([loadSourceLinks(),checkCollector(),checkCloud()]);
 };
 document.querySelectorAll(".close-dialog").forEach(button => button.onclick = () => button.closest("dialog").close());
 $("task-form").onsubmit = async event => {
@@ -1060,6 +1071,7 @@ function startDemo() {if($("workspace").hidden)return;demoIndex=0;demoOriginal={
 function endDemo() {
   try{localStorage.setItem(demoKey(),"seen");}catch{}
   $("demo-dialog").close();$("sources-dialog").close();
+  loadSyncProgress();
   if(demoOriginal){categoryFilter=demoOriginal.category;render();window.scrollTo({top:demoOriginal.scroll,behavior:"instant"});demoOriginal=null;}
   $("demo-button").focus({preventScroll:true});
 }
@@ -1089,6 +1101,7 @@ function setAuthMode(mode) {
 function configureAccount(data) {
   publicRegistration=!!data.public_registration;$("public-user-count").textContent=Number.isInteger(data.registered)?String(data.registered):"—";
   trialMode=!!data.trial;isAdmin=!!data.admin;boardAccount=data.account || (trialMode?"":"personal");accountName=data.username || accountName;registrationOpen=!!data.registration_open;
+  loadSyncProgress();
   updateAccountCard();
   $("trial-auth").hidden=!trialMode;$("auth-recover").hidden=!trialMode;$("account-button").hidden=!trialMode;
   $("username").required=trialMode;$("password").minLength=trialMode?6:0;

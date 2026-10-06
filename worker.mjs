@@ -45,7 +45,7 @@ const FIELDS = ["category", "title", "content", "location", "todos", "links", "a
 const stored = (task, field) => ["todos","links","attachments","details"].includes(field) ? JSON.stringify(task[field]) : task[field];
 const FILE_LIMIT=10*1024*1024, STORAGE_LIMIT=100*1024*1024, CHUNK_SIZE=512*1024;
 const now = () => new Date().toISOString();
-export const RELEASE={version:"3.1.1",title:"来源与同步 · 五步配置",items:["五个进度点显示配置状态，完成一步自动进入下一步","第 4 步可直接开启或更新云端同步，无需另开设置页；需更新扩展至 v1.9.3"]};
+export const RELEASE={version:"3.1.1",title:"来源与同步 · 五步配置",items:["五个进度点显示配置状态，完成一步后点击“下一步”继续","第 4 步可直接开启或更新云端同步，无需另开设置页；需更新扩展至 v1.9.3"]};
 export async function autoArchive(db,time=Date.now()) {
   const stamp=new Date(time).toISOString(),cutoff=new Date(time-7*86400000).toISOString();
   return db.prepare("UPDATE tasks SET archived_at=?,updated_at=?,revision=revision+1 WHERE deleted=0 AND archived_at IS NULL AND category NOT IN ('课程','记录') AND status='done' AND datetime(completed_at)<=datetime(?) AND (archive_restored_at IS NULL OR datetime(archive_restored_at)<=datetime(?))").bind(stamp,stamp,cutoff,cutoff).run();

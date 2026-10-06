@@ -59,6 +59,7 @@ try {
   await page.locator("#messages-read").click();await page.evaluate(()=>checkCloud());
   assert.equal(await page.locator("#messages-dialog").isVisible(),false,"one automatic popup per opening");
   await page.locator("#sources-button").click();
+  await page.locator("#sync-existing").click();
   await page.locator("#sources-list .source-login").waitFor({state:"visible"});
   assert.equal(await page.locator("#sources-list .source-login").count(),1);
   await page.locator("#sources-dialog .close-dialog").click();
@@ -302,16 +303,16 @@ try {
   });
   await page.locator("#sources-button").click();await page.waitForFunction(()=>document.getElementById("collector-state").textContent.includes("已连接"));
   assert.equal(await page.locator("#collector-scan").textContent(),"一键同步");
-  await page.locator("#sync-tab-5").click();await page.locator("#collector-scan").click();await page.waitForFunction(()=>window.testScanCount===1);
-  await page.locator("#sync-tab-2").click();await page.locator("#collector-enabled").uncheck();await page.waitForFunction(()=>document.getElementById("collector-state").textContent.includes("已暂停"));
+  await page.evaluate(()=>setSyncStep(5));await page.locator("#collector-scan").click();await page.waitForFunction(()=>window.testScanCount===1);
+  await page.evaluate(()=>setSyncStep(2));await page.locator("#collector-enabled").uncheck();await page.waitForFunction(()=>document.getElementById("collector-state").textContent.includes("已暂停"));
   assert.equal(await page.locator("#collector-scan").isDisabled(),true);
   await page.route("**/api/cloud",route=>route.fulfill({json:{available:true,enabled:true,sources:{smartestu:{authorized:true,last_success:new Date().toISOString(),count:3,status_count:3,changed:0}}}}));
   let cloudRuns=0;
   await page.route("**/api/cloud/run",route=>{cloudRuns++;return route.fulfill({json:{ok:true}});});
   await page.evaluate(()=>checkCloud());assert.equal(await page.locator("#collector-scan").isDisabled(),false);
-  await page.locator("#sync-tab-5").click();await page.locator("#collector-scan").click();await page.waitForFunction(()=>!syncing);
+  await page.evaluate(()=>setSyncStep(5));await page.locator("#collector-scan").click();await page.waitForFunction(()=>!syncing);
   assert.equal(cloudRuns,1);assert.equal(await page.evaluate(()=>window.testScanCount),1);
-  await page.locator("#sync-tab-2").click();await page.locator("#collector-enabled").check();await page.locator("#sync-tab-5").click();await page.locator("#collector-scan").click();await page.waitForFunction(()=>!syncing);assert.equal(cloudRuns,2);assert.equal(await page.evaluate(()=>window.testScanCount),2);
+  await page.evaluate(()=>setSyncStep(2));await page.locator("#collector-enabled").check();await page.evaluate(()=>setSyncStep(5));await page.locator("#collector-scan").click();await page.waitForFunction(()=>!syncing);assert.equal(cloudRuns,2);assert.equal(await page.evaluate(()=>window.testScanCount),2);
   assert.match(await page.locator("#sources-list").textContent(),/已同步/);
 
   await page.screenshot({animations:"disabled",path:"data/screenshots/sources.png"});
