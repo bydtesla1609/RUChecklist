@@ -40,7 +40,17 @@ function messageSection(title){const section=element("section",null,"message-sec
 function renderMessages(manual){
   $("messages-content").replaceChildren();const release=releaseState?.release,announcements=manual?(announcementState?.announcements || []):unreadAnnouncements();
   noticeSnapshot={version:releaseState?.unread?release?.version:null,announcement:Math.max(0,...announcements.map(a=>a.id))};
-  if(release && (manual || releaseState.unread)){const section=messageSection(`更新优化 · v${release.version}`);section.append(element("p",release.title));const ul=element("ul");release.items.forEach(text=>ul.append(element("li",text)));section.append(ul);}
+  if(release && (manual || releaseState.unread)){
+    const section=messageSection("更新优化"),history=element("div",null,"release-history");history.id="release-history";history.hidden=true;
+    const entry=release=>{const article=element("article",null,"release-entry");article.append(element("h4",`v${release.version} · ${release.title}`));const list=element("ul");release.items.forEach(text=>list.append(element("li",text)));article.append(list);return article;};
+    section.append(entry(release));
+    const older=(releaseState.releases || []).filter(item=>item.version!==release.version);
+    if(older.length){
+      history.append(...older.map(entry));const more=element("button","查看更多","text-button release-more");more.type="button";more.setAttribute("aria-expanded","false");more.setAttribute("aria-controls",history.id);
+      more.onclick=()=>{history.hidden=!history.hidden;more.setAttribute("aria-expanded",String(!history.hidden));more.textContent=history.hidden?"查看更多":"收起历史更新";if(history.hidden)more.scrollIntoView({block:"nearest"});};
+      section.append(history,more);
+    }
+  }
   const expired=expiredSources();
   if(expired.length){const section=messageSection("以下网站登录过期");section.append(element("p","点击跳转并重新登录；请在已连接扩展的电脑浏览器完成。","hint"));expired.forEach(source=>{const row=element("div",null,"expired-site");row.append(element("strong",source.name),loginLink(source));section.append(row);});}
   const soon=soonTasks();

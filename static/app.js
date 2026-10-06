@@ -458,13 +458,7 @@ function render() {
     header.append(element("span", null, "line"), element("h3", label), element("span", String(matching.length), "count"));
     column.append(header);
     if (matching.length) column.append(...matching.map(card));
-    else {
-      const empty = element("div", null, "empty");
-      empty.append(element("b", state === "done" ? "期待下一次完成" : state === "doing" ? "专注一件事" : "从一件小事开始"),
-        element("p", state === "done" ? "完成的任务会留在这里" : state === "doing" ? "开始后，将任务进度设为进行中" : "记录作业或接下来的安排"));
-      if (state === "todo") { const add = element("button", "＋ 添加任务"); add.onclick = () => startAdd(); empty.append(add); }
-      column.append(empty);
-    }
+    else column.append(emptySchedule(label,"作业",state==="todo"));
     return column;
   }));
   renderSources();
@@ -1061,7 +1055,7 @@ const demoSteps=[
   {target:"#cloud-settings > h3",sources:true,title:"云端同步：电脑关机也能更新",text:"在第 4 步直接开启云端同步，电脑关机后也能更新。微人大、YOJ 和通用识别网站仍需浏览器运行。点击“下一步”后执行同步。"},
   {target:"#user-menu-toggle",title:"账户菜单：消息与归档",text:"点击头像和用户名，打开消息看板、归档处、反馈与账号设置。可以随时手动归档；已完成任务满 7 天也会自动归档，课程除外。归档后可查看、恢复或删除。"}
 ];
-let demoIndex=0,demoOriginal=null;
+let demoIndex=0,demoOriginal=null,demoFrame=0,demoReveal=false;
 const demoKey=()=>`ruchecklist-demo:${boardAccount}`;
 function positionDemo() {
   if(!$("demo-dialog").open)return;
@@ -1069,33 +1063,44 @@ function positionDemo() {
   const rect=target.getBoundingClientRect(),frame=$("demo-highlight"),card=$("demo-card"),pad=8;
   const left=Math.max(pad,rect.left-5),top=Math.max(pad,rect.top-5),width=Math.max(0,Math.min(innerWidth-pad,rect.right+5)-left),height=Math.max(0,Math.min(innerHeight-pad,rect.bottom+5)-top);
   Object.assign(frame.style,{left:`${left}px`,top:`${top}px`,width:`${width}px`,height:`${height}px`});
-  const cardWidth=Math.min(400,innerWidth-32),cardHeight=card.offsetHeight;
+  const cardWidth=Math.min(400,innerWidth-32);card.style.width=`${cardWidth}px`;const cardHeight=card.offsetHeight;
   const cardTop=top+height+16+cardHeight<innerHeight?top+height+16:top-cardHeight-16>=16?top-cardHeight-16:Math.max(16,innerHeight-cardHeight-20);
   Object.assign(card.style,{width:`${cardWidth}px`,left:`${Math.max(16,Math.min(left,innerWidth-cardWidth-16))}px`,top:`${cardTop}px`});
 }
-async function showDemoStep() {
+function layoutDemo(reveal=false){
+  demoReveal ||= reveal;
+  if(demoFrame)return;
+  demoFrame=requestAnimationFrame(()=>{
+    demoFrame=0;const shouldReveal=demoReveal;demoReveal=false;if(!$("demo-dialog").open)return;
+    const step=demoSteps[demoIndex];
+    if(shouldReveal)document.querySelector(step.target)?.scrollIntoView({block:step.sources?"center":"nearest",behavior:"instant"});
+    positionDemo();
+  });
+}
+function showDemoStep() {
   const step=demoSteps[demoIndex];
-  $("demo-next").disabled=true;$("demo-prev").disabled=true;
+  $("demo-title").textContent=step.title;$("demo-description").textContent=step.text;$("demo-progress").textContent=`${demoIndex+1} / ${demoSteps.length}`;
+  $("demo-prev").disabled=demoIndex===0;$("demo-next").disabled=false;$("demo-next").textContent=demoIndex===demoSteps.length-1?"开始使用":"下一步";
   if(step.sources) {
-    if(!$("sources-dialog").open){$("demo-dialog").close();$("sources-dialog").showModal();$("demo-dialog").showModal();await Promise.all([loadSourceLinks(),checkCloud(),checkCollector()]);}
+    if(!$("sources-dialog").open){$("demo-dialog").close();$("sources-dialog").showModal();$("demo-dialog").showModal();}
     setSyncStep(step.target==="#add-source-link"?3:4);
   }else {
     $("sources-dialog").close();
     if(step.view)overviewView=step.view;
     if(step.category){categoryFilter=step.category;render();}
   }
-  $("demo-title").textContent=step.title;$("demo-description").textContent=step.text;$("demo-progress").textContent=`${demoIndex+1} / ${demoSteps.length}`;
-  await new Promise(requestAnimationFrame);
-  if(step.sources)await Promise.all($("sources-dialog").getAnimations({subtree:true}).filter(animation=>animation.effect.getTiming().iterations!==Infinity).map(animation=>animation.finished.catch(()=>{})));
-  if(!$("demo-dialog").open || demoSteps[demoIndex]!==step)return;
-  $("demo-prev").disabled=demoIndex===0;$("demo-next").disabled=false;$("demo-next").textContent=demoIndex===demoSteps.length-1?"开始使用":"下一步";
-  document.querySelector(step.target)?.scrollIntoView({block:step.sources?"center":"nearest",behavior:"instant"});
-  positionDemo();requestAnimationFrame(positionDemo);$("demo-next").focus({preventScroll:true});
+  layoutDemo(true);$("demo-next").focus({preventScroll:true});
 }
-function startDemo() {if($("workspace").hidden)return;demoIndex=0;demoOriginal={category:categoryFilter,view:overviewView,scroll:scrollY};$("demo-dialog").showModal();showDemoStep();}
+function startDemo() {
+  if($("workspace").hidden)return;demoIndex=0;demoOriginal={category:categoryFilter,view:overviewView,scroll:scrollY};
+  $("sources-dialog").classList.add("demo-preview");$("demo-dialog").showModal();showDemoStep();
+  // Detection and network requests must never block a tour transition.
+  loadSourceLinks();checkCloud();checkCollector();
+}
 function endDemo() {
   try{localStorage.setItem(demoKey(),"seen");}catch{}
   $("demo-dialog").close();$("sources-dialog").close();
+  $("sources-dialog").classList.remove("demo-preview");cancelAnimationFrame(demoFrame);demoFrame=0;demoReveal=false;
   loadSyncProgress();
   if(demoOriginal){categoryFilter=demoOriginal.category;overviewView=demoOriginal.view;render();window.scrollTo({top:demoOriginal.scroll,behavior:"instant"});demoOriginal=null;}
   $("demo-button").focus({preventScroll:true});
@@ -1105,10 +1110,10 @@ $("demo-button").onclick=startDemo;$("demo-skip").onclick=endDemo;
 $("demo-next").onclick=()=>{if(demoIndex===demoSteps.length-1)endDemo();else{demoIndex++;showDemoStep();}};
 $("demo-prev").onclick=()=>{if(demoIndex){demoIndex--;showDemoStep();}};
 $("demo-dialog").addEventListener("cancel",event=>{event.preventDefault();endDemo();});
-window.addEventListener("resize",positionDemo);document.addEventListener("scroll",positionDemo,true);
+window.addEventListener("resize",()=>layoutDemo(true));document.addEventListener("scroll",()=>layoutDemo(),true);
 const demoLayout=new ResizeObserver(()=>{
   if(!$("demo-dialog").open)return;
-  document.querySelector(demoSteps[demoIndex].target)?.scrollIntoView({block:demoSteps[demoIndex].sources?"center":"nearest",behavior:"instant"});requestAnimationFrame(positionDemo);
+  layoutDemo(true);
 });
 for(const id of ["guide-install","website-setup","collector-controls","collector-state","cloud-settings","sources-list","sources-dialog"])demoLayout.observe($(id));
 

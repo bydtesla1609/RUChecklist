@@ -6,7 +6,7 @@ import {join,resolve,dirname} from 'node:path';
 import {createServer} from 'node:http';
 import {once} from 'node:events';
 import {createEnvironment} from './local.mjs';
-import worker,{RELEASE} from './worker.mjs';
+import worker,{RELEASE,RELEASES} from './worker.mjs';
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root=resolve(tmpdir()),directory=await mkdtemp(join(root,'rucapture-editor-'));
 const {env,database}=await createEnvironment(directory,'isolated-editor-test');env.CLOUD_ENCRYPTION_KEY='12'.repeat(32);
@@ -21,11 +21,15 @@ try{
  await context.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());
  await context.addInitScript(()=>localStorage.setItem('ruchecklist-demo:personal','seen'));
  const page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));
- await page.goto(origin);await page.locator('#password').fill('isolated-editor-test');await page.locator('#login-form button[type=submit]').click();await page.locator('#workspace').waitFor();
+ await page.goto(origin);await page.locator('#login').waitFor();
+ const brandColor=await page.locator('.landing-brand .wordmark b').evaluate(el=>getComputedStyle(el).color);
+ for(const width of [320,390,768,1440]){await page.setViewportSize({width,height:1000});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);}
+ await page.locator('#password').fill('isolated-editor-test');await page.locator('#login-form button[type=submit]').click();await page.locator('#workspace').waitFor();
+ assert.equal(await page.locator('.brand .wordmark b').evaluate(el=>getComputedStyle(el).color),brandColor);
  await page.waitForFunction(()=>messageReady);if(await page.locator('#messages-dialog').isVisible())await page.locator('#messages-read').click();
  await mkdir('data/screenshots',{recursive:true});
  // Empty pending columns offer a category-specific entry without preselecting an axis.
- for(const category of ['活动','会议','记录']){
+ for(const category of ['作业','活动','会议','记录']){
   await page.locator('#categories button').filter({hasText:category}).click();
   assert.equal(await page.locator('#board .empty-add').count(),1);
   await page.locator('#board').getByRole('button',{name:`＋ 添加${category}`,exact:true}).click();
@@ -47,6 +51,23 @@ try{
  await page.locator('#demo-next').click();await page.locator('#demo-progress').filter({hasText:'2 / 9'}).waitFor();assert.equal(await page.locator('.axes-canvas').isVisible(),true);
  await page.locator('#demo-prev').click();assert.equal(await page.evaluate(()=>overviewView),'calendar');await page.locator('#demo-skip').click();
  assert.equal(await page.evaluate(()=>overviewView),'axes');assert.equal(await page.evaluate(()=>JSON.stringify(axisScene)),layout);
+ // Keep website requests unresolved: 6 -> 7 must render immediately, even on return.
+ const pending=[];await page.route('**/api/source-links',route=>pending.push(route));
+ await page.locator('#demo-button').click();for(let i=0;i<5;i++)await page.locator('#demo-next').click();
+ for(let attempt=0;attempt<3;attempt++){
+  await page.locator('#demo-next').click();await page.waitForFunction(()=>document.getElementById('demo-progress').textContent==='7 / 9' && !document.getElementById('demo-next').disabled,null,{timeout:500});
+  assert.equal(await page.locator('#website-setup').isVisible(),true);
+  await page.locator('#demo-prev').click();assert.equal(await page.locator('#demo-progress').textContent(),'6 / 9');
+ }
+ await page.locator('#demo-next').click();assert.equal(pending.length,1,'returning to a demo step does not repeat network checks');
+ await pending[0].fulfill({contentType:'application/json',body:JSON.stringify({links:Array.from({length:5},(_,i)=>({name:`示例课程 ${i+1}`,url:`https://example.com/course/${i}`,source:'web:https://example.com',generic:true}))})});await page.unroute('**/api/source-links');
+ for(const width of [390,768,1440]){
+  await page.setViewportSize({width,height:844});
+  await page.waitForFunction(()=>{const target=document.getElementById('add-source-link').getBoundingClientRect(),frame=document.getElementById('demo-highlight').getBoundingClientRect(),card=document.getElementById('demo-card').getBoundingClientRect();return target.top>=0 && target.bottom<=innerHeight && Math.abs(frame.top-Math.max(8,target.top-5))<2 && card.right<=innerWidth && card.bottom<=innerHeight;},null,{timeout:2000}).catch(async error=>{console.log(await page.evaluate(()=>Object.fromEntries(['add-source-link','demo-highlight','demo-card','sources-dialog'].map(id=>[id,document.getElementById(id).getBoundingClientRect().toJSON()]))));await page.screenshot({path:'data/screenshots/tour-layout-failure.png'});throw error;});
+  await page.screenshot({path:`data/screenshots/tour-step-seven-${width}.png`,animations:'disabled'});
+ }
+ await page.locator('#demo-skip').click();assert.equal(await page.locator('#sources-dialog').evaluate(el=>el.classList.contains('demo-preview')),false);
+ await page.setViewportSize({width:1440,height:1000});
  // A nested card editor must preserve both its draft and the outer axis draft.
  await page.evaluate(id=>openAxis(axes.find(a=>a.id===id)),fixture.axis.id);await page.locator('#axis-title').fill('尚未保存的轴线标题');
  await page.locator('#axis-members').getByRole('button',{name:'编辑',exact:true}).click();
@@ -78,6 +99,29 @@ try{
  await page.locator('#save-task').click();await page.locator('#task-dialog').waitFor({state:'hidden'});
  assert.equal(database.prepare('SELECT axis_id FROM tasks WHERE id=?').get(fixture.task.id).axis_id,selected);
  assert.equal(await page.locator('#axis-title').inputValue(),'尚未保存的轴线标题');await page.locator('#axis-dialog .close-dialog').first().click();
+ // Long archived titles retain readable width, including desktop-sized narrow dialogs.
+ const archived=await page.evaluate(async()=>{
+  const card=await api('/api/tasks','POST',{title:'示例数学分析第五次作业与复习安排',category:'作业',due_at:'2099-10-12T08:00:00Z'});
+  await api(`/api/tasks/${card.id}/archive`,'PATCH',{archived:true,revision:card.revision});return card.id;
+ });
+ await page.locator('#user-menu-toggle').click();await page.locator('#archive-button').click();await page.locator('.archive-row').waitFor();
+ for(const width of [320,390,768,1024,1440]){
+  await page.setViewportSize({width,height:844});
+  assert.equal(await page.locator('.archive-row').first().evaluate(row=>{const text=row.querySelector('.archive-info').getBoundingClientRect(),actions=row.querySelector('.task-actions').getBoundingClientRect(),dialog=row.closest('dialog');return text.width>160 && dialog.scrollWidth<=dialog.clientWidth && (text.right<=actions.left || text.bottom<=actions.top);}),true,`archive title/actions fit at ${width}px`);
+ }
+ await page.screenshot({path:'data/screenshots/archive-responsive-desktop.png',animations:'disabled'});await page.locator('#archive-dialog .close-dialog').first().click();
+ assert.equal(database.prepare('SELECT title FROM tasks WHERE id=?').get(archived).title,'示例数学分析第五次作业与复习安排');
+ // Only the newest release is shown initially; expanding history does not mark it read.
+ await page.locator('#user-menu-toggle').click();await page.locator('#messages-button').click();await page.locator('#messages-dialog').waitFor();
+ assert.equal(await page.locator('.release-entry:visible').count(),1);assert.match(await page.locator('.release-entry:visible h4').textContent(),new RegExp(RELEASE.version));
+ await page.getByRole('button',{name:'查看更多',exact:true}).click();assert.equal(await page.locator('.release-entry:visible').count(),RELEASES.length);
+ assert.match(await page.locator('.release-entry:visible').last().textContent(),/3\.0\.0/);
+ for(const width of [320,390,768]){await page.setViewportSize({width,height:844});assert.equal(await page.locator('#messages-dialog').evaluate(el=>el.scrollWidth<=el.clientWidth),true);}
+ await page.getByRole('button',{name:'收起历史更新',exact:true}).click();assert.equal(await page.locator('.release-entry:visible').count(),1);
+ await page.screenshot({path:'data/screenshots/release-history-collapsed.png',animations:'disabled'});
+ await page.locator('#messages-read').click();await page.locator('#messages-dialog').waitFor({state:'hidden'});
+ await page.locator('#user-menu-toggle').click();await page.locator('#messages-button').click();await page.locator('#messages-dialog').waitFor();assert.equal(await page.locator('.release-entry:visible').count(),1);await page.locator('#messages-read').click();
+ await page.setViewportSize({width:390,height:844});
  // Real detector UI, with an isolated extension message double. No auto advance.
  await page.evaluate(()=>addEventListener('message',event=>{if(event.data?.kind==='campus-board-command')postMessage({kind:'campus-board-reply',id:event.data.id,result:{version:'1.9.3',connected:false,enabled:true,sourceResults:{}}},location.origin);}));
  await page.locator('#sources-button').click();await page.locator('#guide-install').waitFor();await page.locator('#collector-recheck').click();
@@ -88,7 +132,7 @@ try{
  await page.screenshot({path:'data/screenshots/detection-notice-mobile.png',animations:'disabled'});
  await page.setViewportSize({width:1440,height:1000});await page.locator('#collector-recheck').click();await notice.waitFor();await page.screenshot({path:'data/screenshots/detection-notice-desktop.png',animations:'disabled'});
  assert.deepEqual(errors,[]);
- console.log('PASS: separate calendar/axes tours with view/layout restoration; empty activity/meeting/record entry points; nested axis creation, cancel/Esc/focus/error/retry and draft/resource preservation; save-only card assignment; modal detection notice; 320–768px layouts.');
+ console.log('PASS: responsive login brand/archive rows/release history; consistent empty boards; immediate repeatable 6→7 tour with delayed network; calendar/axes restoration; nested axis draft/resource preservation; modal detection notice; 320–1440px layouts.');
 }finally{
  await browser?.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));database.close();
  if(dirname(resolve(directory))!==root)throw Error('Unsafe cleanup path');await rm(directory,{recursive:true,force:true});

@@ -45,7 +45,17 @@ const FIELDS = ["category", "title", "content", "location", "todos", "links", "a
 const stored = (task, field) => ["todos","links","attachments","details"].includes(field) ? JSON.stringify(task[field]) : task[field];
 const FILE_LIMIT=10*1024*1024, STORAGE_LIMIT=100*1024*1024, CHUNK_SIZE=512*1024;
 const now = () => new Date().toISOString();
-export const RELEASE={version:"3.1.1",title:"来源与同步 · 五步配置",items:["五个进度点显示配置状态，完成一步后点击“下一步”继续","第 4 步可直接开启或更新云端同步，无需另开设置页；需更新扩展至 v1.9.3"]};
+// Keep published versions here, newest first; read receipts track only the latest.
+export const RELEASES=[
+  {version:"3.1.5",title:"演示与布局优化",items:["使用演示切换更顺畅，归档列表适配不同屏幕","统一登录页标志与作业空看板提示","更新看板支持展开查看 RUCapture 历史版本"]},
+  {version:"3.1.4",title:"视图演示与快捷建轴",items:["日历、轴线分别演示，自动切换到对应视图","活动、会议、记录空看板增加添加入口；检测提示在弹窗内显示","所属轴线可直接新建，返回编辑时保留卡片草稿"]},
+  {version:"3.1.3",title:"页面内确认",items:["删除、移除操作统一使用页面内确认弹窗","支持取消和 Esc 返回，删除轴线保留其中的卡片"]},
+  {version:"3.1.2",title:"同步配置进度优化",items:["每一步完成后手动点击下一步，更新后重新检测状态","成功执行同步即完成第 5 步，空结果也可完成","简化完成时间说明，优化配置页文字大小"]},
+  {version:"3.1.1",title:"来源与同步 · 五步配置",items:["五个进度点展示网站配置步骤","第 4 步直接开启或更新云端同步，无需另开设置页","优化下拉选择、侧栏图标及记录看板"]},
+  {version:"3.1.0",title:"开放体验",items:["开放 300 人注册，原有账号继续使用；可选择自动登录","轴线所有节点支持拖动，布局可以保存并跨设备恢复","记录支持待完善、已完善状态及数量统计"]},
+  {version:"3.0.0",title:"RUCapture · 记录与规划",items:["正式更名为 RUCapture，新增记录卡片","总览支持日历与轴线视图，卡片按时间入轴","侧栏支持折叠，课程继续导入并显示在总览"]}
+];
+export const RELEASE=RELEASES[0];
 export async function autoArchive(db,time=Date.now()) {
   const stamp=new Date(time).toISOString(),cutoff=new Date(time-7*86400000).toISOString();
   return db.prepare("UPDATE tasks SET archived_at=?,updated_at=?,revision=revision+1 WHERE deleted=0 AND archived_at IS NULL AND category NOT IN ('课程','记录') AND status='done' AND datetime(completed_at)<=datetime(?) AND (archive_restored_at IS NULL OR datetime(archive_restored_at)<=datetime(?))").bind(stamp,stamp,cutoff,cutoff).run();
@@ -344,7 +354,7 @@ async function route(request, env) {
   if(path==="/api/session" && method==="GET") return json({authenticated});
   if(!authenticated) fail(401,"请先登录看板");
   if(path==="/api/notices" && method==="GET"){
-    const row=await db.prepare("SELECT value FROM settings WHERE key='read_release'").first();return json({release:RELEASE,unread:row?.value!==RELEASE.version});
+    const row=await db.prepare("SELECT value FROM settings WHERE key='read_release'").first();return json({release:RELEASE,releases:RELEASES,unread:row?.value!==RELEASE.version});
   }
   if(path==="/api/notices/read" && method==="POST"){
     if((await body(request)).version!==RELEASE.version)fail(400,"版本信息已更新，请刷新消息");
