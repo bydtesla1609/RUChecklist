@@ -86,6 +86,11 @@ try{
  // An older extension cannot keep the later dots lit from previously saved settings.
  await page.evaluate(()=>{collectorState.version='1.9.2';updateSyncSteps();});
  assert.deepEqual(await page.locator('#sync-progress li').evaluateAll(points=>points.map(p=>p.classList.contains('complete'))),[false,false,false,false,false]);await page.evaluate(()=>checkCollector());
+ // Repeated status polling of an older extension must not erase a completed cloud execution.
+ await page.evaluate(async()=>{window.realCollectorCommand=collectorCommand;collectorCommand=async(command,...args)=>command==='status'?{version:'1.9.2',connected:true,enabled:false,sourceResults:{}}:realCollectorCommand(command,...args);await checkCollector();setSyncStep(5);});
+ await page.locator('#collector-scan').click();await page.waitForFunction(()=>!syncing);await page.evaluate(()=>checkCollector());
+ assert.equal(await page.locator('#sync-tab-5').getAttribute('class'),'complete');
+ await page.evaluate(async()=>{collectorCommand=window.realCollectorCommand;await checkCollector();});
  async function goStep(step){while(await page.evaluate(()=>syncStep)>step)await page.locator('#sync-prev').click();while(await page.evaluate(()=>syncStep)<step)await page.locator('#sync-next').click();}
  await mkdir('data/screenshots',{recursive:true});
  for(const step of [1,3,4,5]){await goStep(step);await page.waitForTimeout(250);await page.screenshot({path:`data/screenshots/sync-step-${step}.png`,animations:'disabled'});}

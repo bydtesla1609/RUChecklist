@@ -743,8 +743,8 @@ async function checkCollector() {
   try {
     const result=await collectorCommand("status",{},1800);
     if(session!==syncSession || sequence!==collectorCheckSequence)return;
-    collectorState=result;
-    if(!syncStepStates()[0]){syncVisited=1;syncExecuted=false;saveSyncProgress();}
+    const previousVersion=collectorState?.version;collectorState=result;
+    if(!syncStepStates()[0] && previousVersion!==result.version){syncVisited=1;syncExecuted=false;saveSyncProgress();}
     $("collector-state").textContent=collectorState.connected?`浏览器扩展已连接 · v${collectorState.version}${collectorState.enabled?"":" · 浏览器导入已暂停"}`:"已检测到扩展，点击下方按钮连接。";
     $("collector-enabled").checked=collectorState.enabled;
   }catch {
@@ -827,7 +827,7 @@ function requireSelectiveSync(source) {
 }
 async function syncSources(source) {
   if(syncing)return;
-  const session=syncSession,markExecuted=()=>{if(session!==syncSession)return;syncExecuted=true;saveSyncProgress();updateSyncSteps();};
+  const session=syncSession,markExecuted=()=>{if(session!==syncSession)return;syncExecuted=true;syncVisited=Math.max(syncVisited,syncStep);saveSyncProgress();updateSyncSteps();};
   syncing=true;updateSyncControls();renderSources();$("source-error").textContent="";
   try {
     const jobs=[],cloudEligible=!source || !source.startsWith("web:") && !source.startsWith("ruc_") && !sources.find(item=>item.id===source)?.browser_only;
