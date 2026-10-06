@@ -25,6 +25,7 @@ try {
   }
   await page.setViewportSize({width:390,height:844});await page.screenshot({path:'data/screenshots/public-login-mobile.png',fullPage:true,animations:'disabled'});
   await page.locator('#auth-register').click();assert.equal(await page.locator('#invite-field').isVisible(),false);
+  assert.equal(await page.locator('#password-label').textContent(),'密码');assert.equal(await page.locator('#password').getAttribute('placeholder'),'至少 6 位，含英文和数字');
   await page.locator('#username').fill('public_student');await page.locator('#password').fill('Ab1234');await page.locator('#remember-login').check();
   await page.locator('#login-form button[type=submit]').click();await page.locator('#recovery-dialog').waitFor();
   assert.ok((await context.cookies()).find(c=>c.name==='trial_session').expires>Date.now()/1000+29*86400);

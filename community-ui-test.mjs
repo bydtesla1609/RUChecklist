@@ -3,6 +3,7 @@ import {createServer} from 'node:http';
 import {once} from 'node:events';
 import {readFile,mkdir} from 'node:fs/promises';
 import trial from './trial-worker.mjs';
+import {RELEASE} from './worker.mjs';
 process.env.TRIAL_UI_FIXTURE='1';
 const {trialFixture}=await import('./trial-test.mjs');
 const {database:db,env,invites,client}=await trialFixture();env.CLOUD_ENCRYPTION_KEY='12'.repeat(32);
@@ -37,7 +38,7 @@ try{
   await phone.locator('#messages-read').click();await phone.locator('#messages-dialog').waitFor({state:'hidden'});if(await phone.locator('#demo-dialog').isVisible())await phone.locator('#demo-skip').click();
   assert.equal(await phone.locator('.sidebar-bottom > button').count(),3);
   assert.equal(await phone.locator('#user-card-name').textContent(),'student');
-  assert.equal(await phone.locator('#app-version').textContent(),'v3.1.0');
+  assert.equal(await phone.locator('#app-version').textContent(),'v'+RELEASE.version);
   assert.deepEqual(await phone.locator('#count-open,#count-soon,#count-overdue,#count-done').allTextContents(),['4','4','0','1']);
   assert.equal(await phone.locator('#categories button').first().locator('.count').textContent(),'4');
   await phone.locator('#user-menu-toggle').click();await phone.locator('#user-menu').waitFor();

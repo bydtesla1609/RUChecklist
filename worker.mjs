@@ -45,7 +45,7 @@ const FIELDS = ["category", "title", "content", "location", "todos", "links", "a
 const stored = (task, field) => ["todos","links","attachments","details"].includes(field) ? JSON.stringify(task[field]) : task[field];
 const FILE_LIMIT=10*1024*1024, STORAGE_LIMIT=100*1024*1024, CHUNK_SIZE=512*1024;
 const now = () => new Date().toISOString();
-export const RELEASE={version:"3.1.0",title:"RUCapture · 开放体验",items:["开放 300 人注册，原有账号继续使用；登录时可选择自动登录","轴线所有节点支持拖动，新增保存布局，可跨设备恢复","记录支持待完善、已完善两栏及独立统计","新入口 rucapture.pages.dev，旧入口继续可用"]};
+export const RELEASE={version:"3.1.1",title:"来源与同步 · 五步配置",items:["五个进度点显示配置状态，完成一步自动进入下一步","第 4 步可直接开启或更新云端同步，无需另开设置页；需更新扩展至 v1.9.3"]};
 export async function autoArchive(db,time=Date.now()) {
   const stamp=new Date(time).toISOString(),cutoff=new Date(time-7*86400000).toISOString();
   return db.prepare("UPDATE tasks SET archived_at=?,updated_at=?,revision=revision+1 WHERE deleted=0 AND archived_at IS NULL AND category NOT IN ('课程','记录') AND status='done' AND datetime(completed_at)<=datetime(?) AND (archive_restored_at IS NULL OR datetime(archive_restored_at)<=datetime(?))").bind(stamp,stamp,cutoff,cutoff).run();
@@ -502,7 +502,7 @@ export default {
     catch(error) { response=json({error:error.status ? error.message : "服务器暂时无法处理请求，请稍后重试"},error.status || 500); if(!error.status) console.error("Board request failed:",error.message); }
     const headers=new Headers(response.headers);
     headers.set("Cache-Control","no-store"); headers.set("X-Content-Type-Options","nosniff"); headers.set("Referrer-Policy","no-referrer");
-    if(!headers.has("Content-Security-Policy")) headers.set("Content-Security-Policy","default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    if(!headers.has("Content-Security-Policy")) headers.set("Content-Security-Policy","default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src 'self' chrome-extension:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     return new Response(response.body,{status:response.status,headers});
   }
 };

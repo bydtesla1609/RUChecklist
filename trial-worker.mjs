@@ -174,6 +174,6 @@ async function route(request,env) {
 export default {async scheduled(event,env,ctx){ctx.waitUntil(runTrialCloud(env,event.scheduledTime));},async fetch(request,env){
   let response;try {response=await route(request,env);}catch(error){response=json({error:error.status?error.message:"请求未完成，请稍后重试"},error.status || 500);}
   const headers=new Headers(response.headers);headers.set("Cache-Control","no-store");headers.set("X-Content-Type-Options","nosniff");headers.set("Referrer-Policy","no-referrer");
-  if(!headers.has("Content-Security-Policy"))headers.set("Content-Security-Policy","default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+  if(!headers.has("Content-Security-Policy"))headers.set("Content-Security-Policy","default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src 'self' chrome-extension:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   return new Response(response.body,{status:response.status,headers});
 }};

@@ -16,6 +16,7 @@ let sourceLinksState=null, boardAccount="personal", trialMode=false;
 let publicRegistration=false;
 let authMode="login", accountName="", registrationOpen=false, isAdmin=false;
 let editingWebsite=-1, websiteBusy=false;
+let syncStep=1,syncStepRevision=0,cloudPanelLoading=false;
 let archiveCategory="全部", archiveItems=[], archiveTotal=0, archiveSequence=0;
 let selectedDay = localInput(new Date()).slice(0,10), calendarMonth = selectedDay.slice(0,7);
 
@@ -55,6 +56,7 @@ function showLogin() {
   $("archive-list").replaceChildren(); $("archive-detail").replaceChildren();
   $("board").replaceChildren(); $("sources-list").replaceChildren(); collectorState=null; cloudState=null;
   sourceLinksState=null;if(trialMode)boardAccount="";
+  syncStep=1;cloudPanelLoading=false;$("cloud-panel").replaceChildren();
   editing=null;deleting=null;draftTodos=[];draftAttachments=[];
   $("task-form").reset();$("task-todos").replaceChildren();$("task-links").replaceChildren();$("task-attachments").replaceChildren();$("source-url").value="";$("website-list").replaceChildren();$("source-links-form").hidden=true;$("recovery-value").textContent="";$("account-password").value="";
 }
@@ -421,7 +423,7 @@ function render() {
   $("board").className="board"+(categoryFilter==="全部"?" calendar-board":categoryFilter!=="作业"?" schedule-board":"");
   document.querySelectorAll(".summary>div").forEach((node,index)=>{
     node.querySelector("span").textContent=["待完成","未来 7 天到期","已逾期","已完成"][index];
-    node.querySelector("small").textContent="";
+    node.querySelector("small").textContent=[categoryFilter==="作业"?"按截止时间从近到远":"课程与记录不计入任务统计","未来 7 天内到期的未完成任务","到期仍未完成的任务","按完成时间倒序 · 满 7 天自动归档"][index];
   });
   $("overview-views").hidden=categoryFilter!=="全部";
   document.querySelectorAll("[data-view]").forEach(button=>button.setAttribute("aria-pressed",String(button.dataset.view===overviewView)));
@@ -454,7 +456,7 @@ function shortDay(day) { return `${Number(day.slice(5,7))} 月 ${Number(day.slic
 function scheduleStats(labels,values,hints) {
   document.querySelector(".summary").dataset.schedule=categoryFilter;
   document.querySelectorAll(".summary>div").forEach((node,index)=>{
-    node.querySelector("span").textContent=labels[index];node.querySelector("strong").textContent=values[index];node.querySelector("small").textContent="";
+    node.querySelector("span").textContent=labels[index];node.querySelector("strong").textContent=values[index];node.querySelector("small").textContent=hints[index];
   });
 }
 function weekRanges(values) {
@@ -668,18 +670,62 @@ function collectorCommand(command,extra={},timeout=18000) {
     collectorRequests.set(id,{resolve,reject,timer});window.postMessage({kind:"campus-board-command",id,command,account:boardAccount,...extra},location.origin);
   });
 }
+function syncStepStates(){
+  const configured=(sourceLinksState || []).flatMap(link=>link.source==="ruc_courses"?["ruc_courses","ruc_exams"]:link.source?[link.source]:[]);
+  const synced=configured.length>0 && configured.every(id=>{const source=sources.find(item=>item.id===id),cloud=cloudState?.enabled && cloudState.sources?.[id];return source && !needsLogin(source) && (cloud?.authorized ? !!cloud.last_success && !cloud.error : !!source.last_seen && !source.error);});
+  return [!!collectorState && (collectorState.version || "0").localeCompare("1.9.3",undefined,{numeric:true})>=0,!!collectorState?.connected,!!sourceLinksState?.length,!!cloudState?.enabled,synced];
+}
+function updateSyncSteps(){
+  const states=syncStepStates();
+  document.querySelectorAll("#sync-progress button").forEach((button,i)=>{button.classList.toggle("complete",states[i]);button.setAttribute("aria-selected",String(syncStep===i+1));button.tabIndex=syncStep===i+1?0:-1;button.setAttribute("aria-label",`第 ${i+1} 步：${button.lastElementChild.textContent}，${states[i]?"已完成":"未完成"}`);});
+  $("sync-prev").disabled=syncStep===1;
+  $("sync-next").textContent=syncStep===5?"完成":syncStep===4 && !states[3]?"暂不开启，继续":"下一步";
+  $("sync-next").disabled=syncStep<4 && !states[syncStep-1];
+}
+function setSyncStep(step){
+  syncStep=step;syncStepRevision++;
+  document.querySelectorAll("#sources-dialog .guide-step").forEach(panel=>panel.hidden=Number(panel.dataset.step)!==step);
+  updateSyncSteps();
+  if(step===4 && $("sources-dialog").open)ensureCloudPanel();
+}
+for(const button of document.querySelectorAll("#sync-progress button"))button.onclick=()=>setSyncStep(Number(button.dataset.step));
+$("sync-progress").onkeydown=event=>{const delta={ArrowLeft:-1,ArrowRight:1}[event.key];if(delta || ["Home","End"].includes(event.key)){event.preventDefault();setSyncStep(event.key==="Home"?1:event.key==="End"?5:Math.max(1,Math.min(5,syncStep+delta)));$("sync-tab-"+syncStep).focus();}};
+$("sync-prev").onclick=()=>setSyncStep(Math.max(1,syncStep-1));
+$("sync-next").onclick=()=>{if(syncStep===5){$("sources-dialog").close();return;}if(syncStep===4 && !cloudState?.enabled)localStorage.setItem(`rucapture-cloud-skip:${boardAccount}`,"1");setSyncStep(syncStep+1);};
+async function ensureCloudPanel(){
+  if(cloudPanelLoading || !collectorState?.connected || !cloudState?.available || !syncStepStates()[0])return;
+  if(document.querySelector("#cloud-panel iframe"))return;
+  const session=syncSession;cloudPanelLoading=true;
+  try{
+    const result=await collectorCommand("cloud-panel");if(session!==syncSession)return;
+    const url=new URL(result.url);
+    if(!/^chrome-extension:\/\/[a-p]{32}\/cloud-panel\.html\?/.test(url.href))throw new Error("请重新加载扩展，再刷新本网页。");
+    const frame=element("iframe");frame.title="云端同步";frame.src=url.href;$("cloud-panel").replaceChildren(frame);$("cloud-authorize").hidden=true;
+  }catch(error){if(session===syncSession){$("source-error").textContent=error.message;$("cloud-authorize").hidden=false;}}
+  finally{if(session===syncSession)cloudPanelLoading=false;}
+}
+window.addEventListener("message",async event=>{
+  const frame=document.querySelector("#cloud-panel iframe");
+  if(!frame || event.source!==frame.contentWindow || event.origin!==frame.src.split("/").slice(0,3).join("/"))return;
+  if(event.data?.kind==="rucapture-cloud-size"){if(Number.isFinite(event.data.height))frame.style.height=`${Math.max(140,Math.min(360,event.data.height))}px`;return;}
+  if(event.data?.kind!=="rucapture-cloud-enabled")return;
+  const session=syncSession;await checkCloud();if(session!==syncSession)return;
+  if(cloudState?.enabled){localStorage.removeItem(`rucapture-cloud-skip:${boardAccount}`);setSyncStep(5);notice("云端同步已开启，可在这里查看各网站的同步结果。");}
+});
 function updateSyncControls() {
   const connected=!!collectorState?.connected;
   $("collector-controls").hidden=!collectorState || connected;
-  $("install-state").textContent=collectorState?`已安装 v${collectorState.version} · ${(collectorState.version || "0").localeCompare("1.9.2",undefined,{numeric:true})<0?"可更新至 v1.9.2":"已是最新版本"}`:"只需安装一次";
+  $("install-state").textContent=collectorState?`已安装 v${collectorState.version} · ${syncStepStates()[0]?"已是最新版本":"请更新至 v1.9.3"}`:"仅需在电脑上安装一次";
   $("collector-options").disabled=!collectorState;
   $("browser-settings").hidden=!connected;
   $("collector-scan").disabled=syncing || !(cloudState?.enabled || (connected && collectorState.enabled));
   $("collector-scan").textContent=syncing?"正在同步…":"一键同步";
   $("cloud-authorize").disabled=!connected || !cloudState?.available;
-  $("cloud-authorize").textContent=cloudState?.enabled?"更新云端授权":"前往云端授权";
+  $("cloud-authorize").textContent=syncStepStates()[0]?"载入云端同步":"先更新扩展至 v1.9.3";
+  if(!connected){$("cloud-panel").replaceChildren();$("cloud-authorize").hidden=false;}
   $("cloud-revoke").hidden=!cloudState?.enabled;
   $("cloud-revoke").disabled=syncing || !cloudState?.enabled;
+  updateSyncSteps();if(syncStep===4 && $("sources-dialog").open)ensureCloudPanel();
 }
 async function checkCollector() {
   const session=syncSession,sequence=++collectorCheckSequence;
@@ -710,7 +756,7 @@ function renderWebsiteLinks() {
     const edit=element("button","编辑","text-button"),remove=element("button","移除","text-button");
     edit.type=remove.type="button";edit.disabled=remove.disabled=websiteBusy;
     edit.setAttribute("aria-label",`编辑网站：${websiteName(link)}`);remove.setAttribute("aria-label",`移除网站：${websiteName(link)}`);
-    edit.onclick=()=>openWebsiteInput(index);remove.onclick=()=>{if(confirm(`移除网站“${websiteName(link)}”？该网站的云端授权会删除，已导入任务保留。`))saveWebsiteLinks(sourceLinksState.filter((_,i)=>i!==index).map(link=>link.url));};
+    edit.onclick=()=>openWebsiteInput(index);remove.onclick=()=>{if(confirm(`移除网站“${websiteName(link)}”？将停止同步此网站，已导入的卡片会保留。`))saveWebsiteLinks(sourceLinksState.filter((_,i)=>i!==index).map(link=>link.url));};
     row.append(text);
     if(link.generic){const setup=element("button","识别设置","secondary");setup.type="button";setup.setAttribute("aria-label",`识别设置：${link.name}`);setup.onclick=()=>setupGeneric(link).catch(error=>{$("source-error").textContent=error.message;});row.append(setup);}
     row.append(edit,remove);return row;
@@ -720,7 +766,7 @@ function openWebsiteInput(index=-1) {editingWebsite=index;$("source-url").value=
 function closeWebsiteInput() {editingWebsite=-1;$("source-url").value="";$("source-links-form").hidden=true;$("add-source-link").hidden=false;}
 async function loadSourceLinks() {
   const session=syncSession;
-  try {const data=await api("/api/source-links");if(session!==syncSession)return;sourceLinksState=data.links;renderWebsiteLinks();renderSources();}
+  try {const data=await api("/api/source-links");if(session!==syncSession)return;sourceLinksState=data.links;renderWebsiteLinks();renderSources();updateSyncSteps();}
   catch(error){if(session===syncSession)$("source-links-result").textContent=error.message;}
 }
 async function saveWebsiteLinks(urls,submitted=null) {
@@ -735,7 +781,7 @@ async function saveWebsiteLinks(urls,submitted=null) {
       catch(error){$("source-links-result").textContent=`已保存，可点击一键同步重试：${error.message}`;}
     }
   }catch(error){$("source-links-result").textContent=error.message;}
-  finally{websiteBusy=false;$("save-source-link").disabled=false;renderWebsiteLinks();}
+  finally{websiteBusy=false;$("save-source-link").disabled=false;renderWebsiteLinks();updateSyncSteps();if(submitted && sourceLinksState?.some(link=>link.url===new URL(submitted).href) && syncStep===3)setSyncStep(4);}
 }
 $("add-source-link").onclick=()=>openWebsiteInput();$("cancel-source-link").onclick=closeWebsiteInput;
 $("source-links-form").onsubmit=event=>{
@@ -745,7 +791,7 @@ $("source-links-form").onsubmit=event=>{
 };
 $("collector-recheck").onclick=async()=>{
   await checkCollector();
-  if(collectorState)$("guide-install").open=collectorState.version!=="1.9.2";
+  if(collectorState){if(syncStepStates()[0])setSyncStep(2);}
   else {sessionStorage.setItem("resume-setup","1");location.reload();}
 };
 $("copy-extension-page").onclick=async()=>{const url=/Edg\//.test(navigator.userAgent)?"edge://extensions":"chrome://extensions";try{await navigator.clipboard.writeText(url);notice("已复制，请粘贴到浏览器地址栏打开");}catch{notice(`请复制 ${url} 到浏览器地址栏`);}};
@@ -755,7 +801,7 @@ $("collector-connect").onclick=async()=>{
     await collectorCommand("status",{},1800);
     const {token}=await api("/api/collector-token","POST",{});
     await collectorCommand("pair",{token});await checkCollector();
-    $("guide-install").open=false;notice("已连接，请在第 3 步保存需要同步的网站链接。");
+    setSyncStep(3);notice("已连接，可以添加网站。");
   }catch(error){$("source-error").textContent=error.message;}finally{$("collector-connect").disabled=false;}
 };
 function requireSelectiveSync(source) {
@@ -763,7 +809,7 @@ function requireSelectiveSync(source) {
   const modern=["yoj","weilai","tuoj"].includes(source) || !source && sourceLinksState?.some(link=>["yoj","weilai","tuoj"].includes(link.source));
   const zhifz=source==="zhifz" || !source && sourceLinksState?.some(link=>link.source==="zhifz"),version=generic?"1.9.0":modern?"1.8.0":zhifz?"1.7.0":"1.6.0";
   if((collectorState?.version || "0").localeCompare(version,undefined,{numeric:true})<0) {
-    $("guide-install").open=true;
+    setSyncStep(1);
     throw new Error(`${modern?"此网站":zhifz?"智夫子":"单独"}同步需要扩展 v${version}，请按第 1 步替换文件、重新加载，再刷新看板。`);
   }
 }
@@ -795,8 +841,7 @@ $("collector-enabled").onchange=async()=>{
 };
 $("collector-options").onclick=()=>collectorCommand("options").catch(error=>{$("source-error").textContent=error.message;});
 $("cloud-authorize").onclick=()=>{
-  const version=sourceLinksState?.some(link=>["weilai","tuoj"].includes(link.source))?"1.8.0":sourceLinksState?.some(link=>link.source==="zhifz")?"1.7.0":"1.5.1";
-  if((collectorState?.version || "0").localeCompare(version,undefined,{numeric:true})<0){$("guide-install").open=true;$("source-error").textContent="请先按第 1 步更新扩展至 v1.8.0，再授权云端采集。";return;}$("collector-options").click();
+  if(!syncStepStates()[0]){setSyncStep(1);return;}ensureCloudPanel();
 };
 async function checkCloud() {
   const session=syncSession,sequence=++cloudCheckSequence;lastCloudCheck=Date.now();
@@ -807,8 +852,8 @@ async function checkCloud() {
     if(session!==syncSession || sequence!==cloudCheckSequence)return;
     cloudState=data;
     $("cloud-status").textContent=cloudState.enabled?`云端自动同步已开启 · 每 ${cloudState.interval_minutes || (trialMode?30:15)} 分钟`:"浏览器自动同步 · 每 15 分钟";
-    $("cloud-grant-state").textContent=!cloudState.available?"此看板暂未配置云端同步":cloudState.enabled?`已开启 · 每 ${cloudState.interval_minutes || (trialMode?30:15)} 分钟检查一次`:"尚未开启 · 可按下方步骤授权";
-    $("sync-mode-note").textContent=cloudState.enabled?"已授权网站由云端持续采集，电脑关机也会更新。微人大课表、考试、YOJ 及通用识别网站仍通过浏览器同步。":"尚未启用云端同步。如需关机后继续更新，请先完成第 4 步授权。";
+    $("cloud-grant-state").textContent=!cloudState.available?"暂不可用，可跳过此步":cloudState.enabled?`已开启 · 每 ${cloudState.interval_minutes || (trialMode?30:15)} 分钟更新`:"尚未开启";
+    $("sync-mode-note").textContent="登录过期的网站，可点击下方“重新登录”。";
     updateSyncControls();renderSources();maybeLoginReminder();
   }catch(error){if(session!==syncSession || sequence!==cloudCheckSequence)return;$("cloud-status").textContent=error.message;$("cloud-grant-state").textContent="暂时无法读取授权状态，请重新打开此清单重试。";}
 }
@@ -822,13 +867,14 @@ function loginLink(source) {
   link.setAttribute("aria-label",`重新登录：${source.name}`);return link;
 }
 function maybeLoginReminder() { if(typeof maybeMessageBoard==="function")maybeMessageBoard(); }
-$("expired-open-sources").onclick=()=>{$("login-expired-dialog").close();$("sources-button").click();$("sources-list").scrollIntoView({block:"center"});};
+$("expired-open-sources").onclick=()=>{$("login-expired-dialog").close();$("sources-button").click();setSyncStep(5);};
 document.querySelectorAll("dialog").forEach(dialog=>dialog.addEventListener("close",()=>queueMicrotask(maybeLoginReminder)));
 $("cloud-revoke").onclick=async()=>{
-  if(!confirm("关闭云端采集并删除服务器保存的教学网站登录授权？已导入的任务会保留。"))return;
-  try{await api("/api/cloud","DELETE");await checkCloud();}catch(error){$("source-error").textContent=error.message;}
+  if(!confirm("关闭云端同步？保存的网站登录状态会删除，已导入的卡片会保留。"))return;
+  try{await api("/api/cloud","DELETE");$("cloud-panel").replaceChildren();$("cloud-authorize").hidden=false;await checkCloud();}catch(error){$("source-error").textContent=error.message;}
 };
 function renderSources() {
+  updateSyncSteps();
   const selected=new Set((sourceLinksState || []).map(link=>link.source));
   if(selected.has("ruc_courses"))selected.add("ruc_exams");
   $("unsupported-links").replaceChildren();
@@ -850,10 +896,10 @@ function renderSources() {
     if(expired){const actions=element("div",null,"source-actions");actions.append(loginLink(source),sync);header.append(actions);}else header.append(sync);
     row.append(header);
     const total=cloud?.last_success?cloud.count:source.task_count;
-    row.append(element("p",expired?"在已连接扩展的电脑浏览器重新登录并打开同步页面，再点此网站的“同步”。仍提示过期时，在第 4 步更新云端授权。":error || (seen?`${formatTime(seen)} · ${total} 项${academic?"日程":"作业"}${incomplete?" · 部分完成状态未识别":""}`:cloud?.authorized?"授权已保存，等待同步":"请连接扩展并登录此网站")));
-    if(source.generic)row.append(element("p","通用识别 · 浏览器同步。首次在第 3 步点“识别设置”确认预览；可在那里重新点选字段。只读取已加载的列表，不支持关机采集。","hint"));
-    else if(source.browser_only)row.append(element("p","在已连接扩展的浏览器打开课程或作业列表即可读取；此网站暂不支持云端采集。","hint"));
-    if(!browserOnly && cloudState?.enabled && !cloud?.authorized)row.append(element("p","此网站尚未授权云端采集，可在第 4 步更新授权。","hint"));
+    row.append(element("p",expired?"重新登录后，点击此网站的“同步”。仍未恢复时，回第 4 步更新。":error || (seen?`${formatTime(seen)} · ${total} 项${academic?"日程":"作业"}${incomplete?" · 部分完成状态未识别":""}`:cloud?.authorized?"已连接云端，等待同步":"等待首次同步")));
+    if(source.generic)row.append(element("p","通过浏览器同步；识别结果可在第 3 步调整。","hint"));
+    else if(source.browser_only)row.append(element("p","此网站通过电脑浏览器同步。","hint"));
+    if(!browserOnly && cloudState?.enabled && !cloud?.authorized)row.append(element("p","尚未开启此网站的云端同步，可回第 4 步更新。","hint"));
     return row;
   }));
 }
@@ -887,7 +933,8 @@ function openTask(task = null) {
   editing = task; $("task-form").reset(); $("task-error").textContent = "";
   taskCategory = task?.category || newTaskCategory || (categoryFilter==="全部"?"作业":categoryFilter);
   $("record-time").value=localInput(task?.starts_at || new Date());
-  fillAxisSelect(task?.axis_id || newTaskAxis);
+  fillAxisSelect(task ? task.axis_id : newTaskAxis);
+  newTaskAxis=null;newTaskCategory=null;
   $("dialog-title").textContent = task ? `编辑${taskCategory}` : `添加${taskCategory}`;
   $("task-title").value = task?.title || "";
   $("task-location").value = task?.location || "";
@@ -928,7 +975,13 @@ $("add-menu").replaceChildren(...CATEGORIES.map(category => {
 document.addEventListener("click", event => { if (!event.target.closest(".add-control") && !event.target.closest(".empty")) closeAddMenu(); });
 document.addEventListener("keydown", event => { if (event.key === "Escape" && !$("add-menu").hidden) { closeAddMenu(); $("add-task").focus(); } });
 $("add-task").onclick = startAdd;
-$("sources-button").onclick = () => { $("guide-install").open=!collectorState || collectorState.version!=="1.9.2";renderSources(); $("sources-dialog").showModal(); $("source-error").textContent=""; loadSourceLinks();checkCollector().then(()=>{if(!$("demo-dialog").open)$("guide-install").open=!collectorState || collectorState.version!=="1.9.2";}); checkCloud(); };
+$("sources-button").onclick = async () => {
+  renderSources();$("sources-dialog").showModal();$("source-error").textContent="";setSyncStep(syncStep);
+  const session=syncSession,revision=syncStepRevision;await Promise.all([loadSourceLinks(),checkCollector(),checkCloud()]);
+  if(session!==syncSession || revision!==syncStepRevision || !$("sources-dialog").open || $("demo-dialog").open)return;
+  const states=syncStepStates(),skip=localStorage.getItem(`rucapture-cloud-skip:${boardAccount}`)==="1";
+  const next=states.findIndex((done,i)=>!done && !(i===3 && skip));setSyncStep(states[4] || sources.some(needsLogin)?5:next<0?5:next+1);
+};
 document.querySelectorAll(".close-dialog").forEach(button => button.onclick = () => button.closest("dialog").close());
 $("task-form").onsubmit = async event => {
   event.preventDefault(); $("save-task").disabled = true; $("task-error").textContent = "";
@@ -969,8 +1022,8 @@ const demoSteps=[
   {category:"记录",target:"#board",title:"记录",text:"记下做过的事和当时的感受。记录也会出现在总览。"},
   {target:"#add-task",title:"随时补充自己的安排",text:"填写标题和时间，再按需要补充地点、内容、待办、附件和链接。"},
   {target:"#sources-button",title:"网站配置在这里",text:"点击侧栏的“来源与同步”，安装并连接同步扩展，就可以接入自己的校园网站。下一步带你查看配置位置。"},
-  {target:"#add-source-link",sources:true,title:"一个网站，一条配置",text:"点击“添加网站”，粘贴需要同步的页面网址，再点确认。已适配平台直接同步；其他网站先授权读取，在原网页确认预览，识别不准时点选字段。每个平台旁的“同步”只读取该来源，“一键同步”读取全部来源。"},
-  {target:"#cloud-authorize",sources:true,title:"云端同步：电脑关机也能更新",text:"在“来源与同步”第 4 步前往扩展授权，勾选同意后启用。登录凭据会加密保存在当前账号下，可随时关闭并删除。授权后回到第 5 步点击“一键同步”检查结果。微人大课表、考试、YOJ 及通用识别网站仍需电脑浏览器运行。"},
+  {target:"#add-source-link",sources:true,title:"一个网站，一条配置",text:"点击“添加网站”，粘贴列表页面的网址并确认。上方五个点显示配置进度，可随时点回之前的步骤。"},
+  {target:"#cloud-settings > h3",sources:true,title:"云端同步：电脑关机也能更新",text:"在第 4 步直接开启云端同步，电脑关机后也能更新。微人大、YOJ 和通用识别网站仍需浏览器运行。完成后会进入第 5 步查看结果。"},
   {target:"#user-menu-toggle",title:"账户菜单：消息与归档",text:"点击头像和用户名，打开消息看板、归档处、反馈与账号设置。可以随时手动归档；已完成任务满 7 天也会自动归档，课程除外。归档后可查看、恢复或删除。"}
 ];
 let demoIndex=0,demoOriginal=null;
@@ -990,14 +1043,14 @@ async function showDemoStep() {
   $("demo-next").disabled=true;$("demo-prev").disabled=true;
   if(step.sources) {
     if(!$("sources-dialog").open){$("demo-dialog").close();$("sources-dialog").showModal();$("demo-dialog").showModal();await Promise.all([loadSourceLinks(),checkCloud(),checkCollector()]);}
-    $("guide-install").open=false;
+    setSyncStep(step.target==="#add-source-link"?3:4);
   }else {
     $("sources-dialog").close();
     if(step.category){categoryFilter=step.category;render();}
   }
   $("demo-title").textContent=step.title;$("demo-description").textContent=step.text;$("demo-progress").textContent=`${demoIndex+1} / ${demoSteps.length}`;
   await new Promise(requestAnimationFrame);
-  if(step.sources)await Promise.all($("sources-dialog").getAnimations().map(animation=>animation.finished.catch(()=>{})));
+  if(step.sources)await Promise.all($("sources-dialog").getAnimations({subtree:true}).filter(animation=>animation.effect.getTiming().iterations!==Infinity).map(animation=>animation.finished.catch(()=>{})));
   if(!$("demo-dialog").open || demoSteps[demoIndex]!==step)return;
   $("demo-prev").disabled=demoIndex===0;$("demo-next").disabled=false;$("demo-next").textContent=demoIndex===demoSteps.length-1?"开始使用":"下一步";
   document.querySelector(step.target)?.scrollIntoView({block:step.sources?"center":"nearest",behavior:"instant"});
@@ -1028,7 +1081,8 @@ function setAuthMode(mode) {
   authMode=mode;$("invite-field").hidden=mode!=="register" || publicRegistration;$("recovery-field").hidden=mode!=="recover";
   $("invite-code").required=mode==="register" && !publicRegistration;$("recovery-code").required=mode==="recover";
   $("password").autocomplete=mode==="login"?"current-password":"new-password";
-  $("password-label").textContent=mode==="recover"?"新密码（至少 6 位，含英文和数字）":"密码（至少 6 位，含英文和数字）";
+  $("password-label").textContent=mode==="recover"?"新密码":"密码";
+  $("password").placeholder="至少 6 位，含英文和数字";
   document.querySelector("#login-form button[type=submit]").textContent=mode==="register"?"创建我的账号":mode==="recover"?"重设密码":"登录看板";
   $("login-error").textContent="";
 }

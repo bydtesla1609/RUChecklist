@@ -160,6 +160,7 @@ async function boardControl(message,sender) {
   const connected=data.boardURL===origin && !!data.token && (data.account || "personal")===(message.account || "personal");
   if(message.command==="status" || message.command==="pair") return {version:chrome.runtime.getManifest().version,connected,enabled:!!data.enabled,sourceResults:connected?data.sourceResults || {}:{},lastResult:connected?data.lastResult || "":""};
   if(!connected) throw new Error("请先在此看板连接扩展");
+  if(message.command==="cloud-panel")return {url:chrome.runtime.getURL("cloud-panel.html")+"?"+new URLSearchParams({board:origin,account:message.account || "personal"})};
   if(message.command==="generic-setup")return genericSetup(message.url);
   if(message.command==="configure") {
     if(typeof message.enabled!=="boolean") throw new Error("同步设置不正确");
@@ -169,6 +170,17 @@ async function boardControl(message,sender) {
   if(message.command==="academic-scan")return performScan(false,true);
   throw new Error("未知操作");
 }
+async function cloudPanelAccount(message,sender){
+  const url=new URL(sender.url),board=url.searchParams.get("board"),account=url.searchParams.get("account");
+  if(url.pathname!=="/cloud-panel.html" || !sender.tab || !sender.frameId || !BOARD_ORIGINS.includes(board) || new URL(sender.tab.url).origin!==board)throw new Error("请从看板第 4 步打开云端同步。");
+  const stored=await chrome.storage.local.get(["boardURL","account","token","cloudEnabled"]);
+  if(stored.boardURL!==board || (stored.account || "personal")!==account || !stored.token)throw new Error("账号连接已变化，请回第 2 步重新连接。");
+  const response=await fetch(`${board}/api/collector-config`,{credentials:"omit",headers:{Authorization:`Bearer ${stored.token}`},signal:AbortSignal.timeout(15000)});
+  if(!response.ok)throw new Error("连接已失效，请回第 2 步重新连接。");
+  const configuration=await response.json();
+  if((configuration.account || "personal")!==account)throw new Error("连接已失效，请回第 2 步重新连接。");
+  return {...stored,cloudEnabled:!!configuration.cloud_enabled};
+}
 chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   if(message.type==="collection-context" && sender.tab) {
     chrome.storage.local.get(["managedTabs","enabled","configuredSources","cloudEnabled","cloudZhifzEnabled","cloudRucListsEnabled"]).then(({managedTabs={},enabled=false,configuredSources=[],cloudEnabled=false,cloudZhifzEnabled=false,cloudRucListsEnabled=false})=>{const source=sourceFor(sender.url);reply({managed:Object.values(managedTabs).includes(sender.tab.id),enabled:enabled && configuredSources.includes(source),cloudEnabled:cloudEnabled && (source!=="zhifz" || cloudZhifzEnabled) && (!["weilai","tuoj"].includes(source) || cloudRucListsEnabled)});});return true;
@@ -177,8 +189,18 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
     const current=cloudQueue.then(()=>cloudRecipe(message,sender));cloudQueue=current.catch(error=>cloudResult(message.source,error.message));
     current.then(reply).catch(error=>reply({error:error.message}));return true;
   }
-  if(message.type==="cloud-authorize" && sender.url?.startsWith(chrome.runtime.getURL(""))) {
-    (async()=>{if(!await chrome.permissions.contains({permissions:["cookies"]}))throw new Error("需要先允许云端登录授权");await cloudAPI("/api/cloud-authorize",{});await chrome.storage.local.set({cloudEnabled:true,cloudZhifzEnabled:true,cloudRucListsEnabled:true,cloudRecipeCache:{},cloudLastResult:"正在读取已配置网站的登录授权…"});await scan(true);return {ok:true};})().then(reply).catch(error=>reply({error:error.message}));return true;
+  if(["cloud-panel-status","cloud-authorize"].includes(message.type) && sender.url?.startsWith(chrome.runtime.getURL(""))) {
+    const run=async()=>{
+      const panel=new URL(sender.url).pathname==="/cloud-panel.html";
+      if(panel){const stored=await cloudPanelAccount(message,sender);if(message.type==="cloud-panel-status")return {ok:true,enabled:!!stored.cloudEnabled};}
+      else if(new URL(sender.url).pathname!=="/options.html" || message.type!=="cloud-authorize")throw new Error("请从看板打开云端同步。");
+      if(!await chrome.permissions.contains({permissions:["cookies"]}))throw new Error("尚未开启，请允许使用网站的登录状态后重试。");
+      await cloudAPI("/api/cloud-authorize",{});await chrome.storage.local.set({cloudEnabled:true,cloudZhifzEnabled:true,cloudRucListsEnabled:true,cloudRecipeCache:{},cloudLastResult:"正在连接已配置的网站…"});
+      try{await scan(true);return {ok:true};}catch(error){return {ok:true,warning:error.message};}
+    };
+    // Pairing waits on this queue so an account switch cannot redirect a grant.
+    const current=cloudQueue.then(run);cloudQueue=current.catch(()=>{});
+    current.then(reply).catch(error=>reply({error:error.message}));return true;
   }
   if(message.type==="capture" && sender.tab) {
     const current=queue.then(()=>upload(message,sender));

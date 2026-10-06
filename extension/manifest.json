@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "RUCapture · 校园同步",
-  "version": "1.9.2",
+  "version": "1.9.3",
   "description": "将已登录的教学网站作业、人大课表及考试日程同步至个人看板。",
   "permissions": [
     "storage",
@@ -126,5 +126,17 @@
   ],
   "optional_permissions": [
     "cookies"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "cloud-panel.html"
+      ],
+      "matches": [
+        "https://campus-task-board.pages.dev/*",
+        "https://ruchecklist-trial.pages.dev/*",
+        "https://rucapture.pages.dev/*"
+      ]
+    }
   ]
 }

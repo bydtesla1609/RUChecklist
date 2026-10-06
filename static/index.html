@@ -10,14 +10,14 @@
 </head>
 <body>
 <section id="login" class="login" hidden>
-  <header class="landing-header"><a href="/" class="landing-brand"><img src="/static/icon.svg" width="36" height="36" alt=""><strong>RUCapture</strong></a><span class="landing-edition">开放体验 · v3.1</span></header>
+  <header class="landing-header"><a href="/" class="landing-brand"><img src="/static/icon.svg" width="36" height="36" alt=""><strong>RUCapture</strong></a><span class="landing-edition">开放体验 · v3.1.1</span></header>
   <div class="landing-grid"><div class="landing-story">
     <p class="landing-kicker"><span></span> 记录与规划，在同一个空间</p>
     <h1>留住此刻。<br><em>向下一步出发。</em></h1>
     <p class="landing-intro">安排待办，写下日常。用轴线把一路的行动与感受连起来。</p>
     <div class="landing-art" aria-label="日历、记录与轴线的功能示意">
       <div class="art-glow"></div>
-      <svg viewBox="0 0 620 270" aria-hidden="true"><defs><linearGradient id="landing-line"><stop stop-color="#aa9aff"/><stop offset="1" stop-color="#77d7ce"/></linearGradient></defs><path class="art-path" d="M25 170C150 170 120 80 240 100S405 210 575 80"/><path class="art-path second" d="M25 225C165 225 195 167 308 180S425 260 575 205"/><circle cx="65" cy="166" r="7"/><circle cx="240" cy="100" r="8"/><circle cx="403" cy="161" r="7"/><circle cx="575" cy="80" r="10"/><circle cx="125" cy="209" r="7"/><circle cx="308" cy="180" r="7"/><circle cx="500" cy="230" r="7"/></svg>
+      <svg viewBox="0 0 620 270" aria-hidden="true"><defs><linearGradient id="landing-line"><stop stop-color="#aa9aff"/><stop offset="1" stop-color="#77d7ce"/></linearGradient></defs><path class="art-path" d="M25 170C150 170 120 80 240 100S405 210 575 80"/><path class="art-path second" d="M25 225C165 225 195 167 308 180S425 260 575 205"/><circle cx="65" cy="166.215" r="7"/><circle cx="240" cy="100.000" r="8"/><circle cx="403" cy="148.256" r="7"/><circle cx="575" cy="80.000" r="10"/><circle cx="125" cy="213.204" r="7"/><circle cx="308" cy="180.000" r="7"/><circle cx="500" cy="224.830" r="7"/></svg>
       <div class="art-card art-plan"><span>日历规划</span><strong>为重要的事，留出时间。</strong><div class="art-week"><i>一</i><i>二</i><i class="selected">三</i><i>四</i><i>五</i><i>六</i><i>日</i></div></div>
       <div class="art-card art-note"><span>今日记录</span><strong>一个想法，一点进步。</strong><div class="art-note-lines"><i></i><i></i></div></div>
       <span class="art-chip">一条轴线 · 一段过程</span>
@@ -37,7 +37,7 @@
 </section>
 <div id="workspace" class="workspace" hidden>
   <aside class="sidebar">
-    <div class="brand-row"><a class="brand" href="/" aria-label="RUCapture首页"><span class="brand-icon" aria-hidden="true"><img src="/static/icon.svg" alt="" width="56" height="56"></span><span class="brand-copy"><span class="wordmark"><b>RU</b>Capture</span><small id="app-version">v3.1.0</small></span></a><button id="sidebar-toggle" class="sidebar-toggle" aria-label="收起侧栏" aria-expanded="true" title="收起侧栏"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="4"/><path d="M9 4v16"/></svg></button></div>
+    <div class="brand-row"><a class="brand" href="/" aria-label="RUCapture首页"><span class="brand-icon" aria-hidden="true"><img src="/static/icon.svg" alt="" width="56" height="56"></span><span class="brand-copy"><span class="wordmark"><b>RU</b>Capture</span><small id="app-version">v3.1.1</small></span></a><button id="sidebar-toggle" class="sidebar-toggle" aria-label="收起侧栏" aria-expanded="true" title="收起侧栏"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="4"/><path class="sidebar-divider" d="M12 4v16"/></svg></button></div>
     <nav id="categories" aria-label="校园板块"></nav>
     <div class="sidebar-bottom">
       <button id="demo-button" class="nav-button" aria-label="使用演示"><span>使用演示</span></button>
@@ -96,25 +96,29 @@
 </dialog>
 <dialog id="sources-dialog">
   <div class="dialog-heading"><div><h2>连接你的网站</h2></div><button class="icon-button close-dialog" aria-label="关闭">×</button></div>
-  <p class="muted guide-intro">首次在电脑浏览器中完成下面的配置清单。之后登录同一个账号，手机也能看到同步的任务。</p>
-  <details id="guide-install" class="guide-step" open><summary><span class="step-number">1</span><span>安装或更新同步扩展<small id="install-state">只需安装一次</small></span></summary>
-    <div id="collector-install" class="step-body"><p class="hint">扩展最新版 <strong>v1.9.2</strong>。网页更新只需刷新；只有扩展发布新版时才需要更新本机文件。已保存的任务和附件会保留。</p>
-    <a class="secondary extension-download" href="/extension.zip?v=1.9.2" download="RUCapture-extension.zip">下载扩展 v1.9.2</a>
-    <h4>首次安装</h4><ol><li>下载后右键选择“全部解压缩”，记住其中的 <strong>extension</strong> 文件夹位置。</li><li>从浏览器菜单打开“扩展程序 → 管理扩展”。<button id="copy-extension-page" class="text-button" type="button">复制管理页地址</button></li><li>开启“开发人员模式”，点“加载解压缩的扩展”，选择该 <strong>extension</strong> 文件夹。</li></ol>
-    <h4>已安装：更新与重新加载</h4><ol><li>如果上方提示扩展有新版，下载并解压，将新版 <strong>extension 内的文件</strong>复制到原安装文件夹，选择“替换目标中的文件”。版本已是最新时跳过这一步。</li><li>点击下面“打开扩展设置”，在设置页点<strong>“重新加载此扩展”</strong>，等待设置页重新打开并核对顶部版本。也可以在管理扩展页面点击重新加载图标。</li><li>刷新本看板，再点击“重新检测”。无需卸载扩展，已有任务和附件不会被清空。</li></ol><p class="hint">重新加载只启用本机已有文件，不会下载新版；若仍显示旧版本，请核对替换的是否为原安装文件夹。</p>
-    <button id="collector-options" class="secondary" type="button" disabled>打开扩展设置</button>
-    <button id="collector-recheck" class="secondary" type="button">我已安装 / 更新，重新检测</button></div>
-  </details>
-  <section class="guide-step"><h3><span class="step-number">2</span>连接当前账号</h3><div class="step-body"><p id="collector-state" role="status">正在检查扩展…</p><div id="collector-controls" hidden><button id="collector-connect" class="primary">连接此看板</button></div><p class="hint">不用复制配对码。换账号或换看板时，请重新连接。</p><div id="browser-settings" hidden><label class="collector-toggle"><input id="collector-enabled" type="checkbox">浏览器打开时每 15 分钟自动导入</label></div></div></section>
-  <section class="guide-step" id="website-setup"><h3><span class="step-number">3</span>添加网站</h3><div class="step-body"><p class="hint">登录你的网站，打开需要同步的页面，将完整网址粘贴到下面。作业、微人大课表或考试查询页都可以。其他网站会打开识别预览，确认后才导入。</p><div id="website-list"></div><form id="source-links-form" hidden><label for="source-url">网站页面链接</label><div class="website-input"><input id="source-url" type="url" required placeholder="https://…" spellcheck="false" autocomplete="off"><button class="secondary" id="save-source-link" type="submit">确认</button><button class="text-button" id="cancel-source-link" type="button">取消</button></div></form><button id="add-source-link" class="text-button" type="button">＋ 添加网站</button><p id="source-links-result" class="hint" role="status"></p><details class="supported-sites"><summary>支持哪些网站？</summary><p class="hint">目前支持 SmartEstu、课堂派、学习通、智夫子、YOJ、人大未来课堂、TUOJ，以及微人大教务课表与考试。其他 HTTPS 网站会使用通用识别：允许读取后，在原网页预览并确认；识别不准可点选字段。只读取当前已加载的表格或卡片，保存规则后复用。</p></details></div></section>
-  <section id="cloud-settings" class="guide-step"><h3><span class="step-number">4</span>开启云端同步 <span class="optional">选填</span></h3><div class="step-body">
-    <p id="cloud-grant-state" class="cloud-grant-state" role="status">尚未启用</p><p class="hint">让已支持的网站在电脑休眠或关机后继续更新。每个账号独立授权；微人大课表、考试、YOJ 及通用识别网站仍需电脑浏览器运行。</p>
-    <ol><li>点击“前往云端授权”，打开扩展设置页。</li><li>阅读并勾选登录授权说明，点击“授权并启用云端采集”。若浏览器询问权限，请确认允许。</li><li>等待打开的网站加载完成；如需登录，先完成登录。回到本页，在第 5 步点击“一键同步”，检查各网站结果。</li></ol>
-    <p class="hint">网站登录凭据加密保存。登录过期时看板会提醒，第 5 步对应网站旁可重新登录；仍未恢复时再更新授权。关闭云端会删除授权，保留已导入任务。</p>
-    <div class="collector-actions"><button id="cloud-authorize" class="secondary" disabled>前往云端授权</button><button id="cloud-revoke" class="text-button" hidden>关闭云端并删除授权</button></div>
+  <nav id="sync-progress" class="sync-progress" role="tablist" aria-label="网站同步步骤">
+    <button id="sync-tab-1" role="tab" data-step="1" aria-controls="guide-install"><span class="sync-dot">1</span><span>扩展</span></button>
+    <button id="sync-tab-2" role="tab" data-step="2" aria-controls="account-setup"><span class="sync-dot">2</span><span>连接</span></button>
+    <button id="sync-tab-3" role="tab" data-step="3" aria-controls="website-setup"><span class="sync-dot">3</span><span>网站</span></button>
+    <button id="sync-tab-4" role="tab" data-step="4" aria-controls="cloud-settings"><span class="sync-dot">4</span><span>云端</span></button>
+    <button id="sync-tab-5" role="tab" data-step="5" aria-controls="sync-results"><span class="sync-dot">5</span><span>同步</span></button>
+  </nav>
+  <section id="guide-install" class="guide-step" role="tabpanel" aria-labelledby="sync-tab-1" data-step="1">
+    <h3>安装或更新扩展</h3><div id="collector-install" class="step-body"><p id="install-state" class="hint" role="status">仅需在电脑上安装一次</p>
+    <a class="secondary extension-download" href="/extension.zip?v=1.9.3" download="RUCapture-extension.zip">下载扩展 v1.9.3</a>
+    <h4>首次安装</h4><ol><li>下载并解压，找到 <strong>extension</strong> 文件夹。</li><li>打开浏览器的“扩展程序 → 管理扩展”。<button id="copy-extension-page" class="text-button" type="button">复制管理页地址</button></li><li>开启“开发人员模式”，选择“加载解压缩的扩展”，选中该文件夹。</li></ol>
+    <details class="extension-update"><summary>已安装：如何更新？</summary><ol><li>将新版 extension 内的文件替换到原安装文件夹。</li><li>在管理扩展页面点击“重新加载”，再刷新本网页。</li></ol><p class="hint">无需卸载；已有卡片会保留。</p><button id="collector-options" class="text-button" type="button" disabled>打开扩展设置</button></details>
+    <button id="collector-recheck" class="primary" type="button">我已安装，重新检测</button></div>
+  </section>
+  <section id="account-setup" class="guide-step" role="tabpanel" aria-labelledby="sync-tab-2" data-step="2" hidden><h3>连接当前账号</h3><div class="step-body"><p id="collector-state" role="status">正在检查扩展…</p><div id="collector-controls" hidden><button id="collector-connect" class="primary">连接此看板</button></div><div id="browser-settings" hidden><label class="collector-toggle"><input id="collector-enabled" type="checkbox">浏览器运行时，每 15 分钟同步</label></div></div></section>
+  <section id="website-setup" class="guide-step" role="tabpanel" aria-labelledby="sync-tab-3" data-step="3" hidden><h3>添加网站</h3><div class="step-body"><p class="hint">登录网站，打开要同步的列表，将网址添加到这里。</p><div id="website-list"></div><form id="source-links-form" hidden><label for="source-url">网站页面链接</label><div class="website-input"><input id="source-url" type="url" required placeholder="https://…" spellcheck="false" autocomplete="off"><button class="secondary" id="save-source-link" type="submit">确认</button><button class="text-button" id="cancel-source-link" type="button">取消</button></div></form><button id="add-source-link" class="text-button" type="button">＋ 添加网站</button><p id="source-links-result" class="hint" role="status"></p><details class="supported-sites"><summary>支持哪些网站？</summary><p class="hint">SmartEstu、课堂派、学习通、智夫子、YOJ、人大未来课堂、TUOJ、微人大课表与考试。其他网站先在原页面核对识别结果，确认后导入。</p></details></div></section>
+  <section id="cloud-settings" class="guide-step" role="tabpanel" aria-labelledby="sync-tab-4" data-step="4" hidden><h3>开启云端同步 <span class="optional">可跳过</span></h3><div class="step-body">
+    <p id="cloud-grant-state" class="cloud-grant-state" role="status">正在检查…</p><p class="hint">电脑关机后仍可更新。微人大、YOJ 及通用识别网站需浏览器运行。</p>
+    <div id="cloud-panel"></div><button id="cloud-authorize" class="secondary" disabled>载入云端同步</button>
+    <button id="cloud-revoke" class="text-button" hidden>关闭云端同步</button>
   </div></section>
-  <section class="guide-step"><h3><span class="step-number">5</span>同步并检查结果</h3><div class="step-body"><div class="sync-toolbar"><p id="cloud-status" class="muted" role="status">正在检查同步状态…</p><button id="collector-scan" class="primary" disabled>一键同步</button></div><p id="sync-mode-note" class="hint"></p><div id="sources-list"></div><div id="unsupported-links"></div></div></section>
-  <p id="source-error" class="error" role="alert"></p>
+  <section id="sync-results" class="guide-step" role="tabpanel" aria-labelledby="sync-tab-5" data-step="5" hidden><h3>同步与检查</h3><div class="step-body"><div class="sync-toolbar"><p id="cloud-status" class="muted" role="status">正在检查同步状态…</p><button id="collector-scan" class="primary" disabled>一键同步</button></div><p id="sync-mode-note" class="hint"></p><div id="sources-list"></div><div id="unsupported-links"></div></div></section>
+  <p id="source-error" class="error" role="alert"></p><div class="sync-step-actions"><button id="sync-prev" class="secondary">上一步</button><button id="sync-next" class="primary">下一步</button></div>
 </dialog>
 <dialog id="messages-dialog" aria-labelledby="messages-title">
   <div class="dialog-heading"><h2 id="messages-title">消息看板</h2><button class="icon-button close-dialog" aria-label="关闭消息看板">×</button></div>

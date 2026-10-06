@@ -56,6 +56,7 @@ try {
   assert.equal(await page.locator('#workspace').evaluate(n=>n.classList.contains('sidebar-collapsed')),true);
   assert.ok((await page.locator('.sidebar').boundingBox()).width<100);
   assert.equal(await page.locator('#user-avatar').isVisible(),true);
+  assert.equal(await page.locator('.sidebar-divider').evaluate(n=>getComputedStyle(n).transform),'matrix(1, 0, 0, 1, -5, 0)');
   await page.locator('#sidebar-toggle').click();
   await page.locator('[data-view="axes"]').click();await page.getByRole('button',{name:'＋ 添加轴线',exact:true}).click();
   await page.locator('#axis-title').fill('学会摄影');await page.locator('#axis-content').fill('观察日常的光');await page.locator('#axis-save').click();await page.locator('#axis-dialog').waitFor({state:'hidden'});
@@ -94,9 +95,15 @@ try {
   await page.locator('.axis-member').first().getByRole('button',{name:'离轴'}).click();await page.waitForFunction(()=>document.querySelectorAll('.axis-member').length===2);
   assert.equal(await page.evaluate(()=>tasks.some(t=>t.title==='第一张照片' && !t.axis_id)),true);
   await page.getByRole('button',{name:'关闭轴线',exact:true}).click();
+  // An unassigned card must not inherit the last axis used for creation.
+  await page.evaluate(()=>openTask(tasks.find(t=>t.title==='第一张照片')));assert.equal(await page.locator('#task-axis').inputValue(),'');
+  const trigger=page.locator('#task-axis').locator('..').locator('.select-trigger');const rect=await trigger.boundingBox(),arrow=await trigger.locator('.select-arrow').boundingBox();assert.ok(arrow.x>rect.x+rect.width-30,'chevron stays on the far right');
+  await trigger.click();assert.equal(await trigger.getAttribute('aria-expanded'),'true');await page.keyboard.press('Escape');
+  await page.locator('#task-dialog .close-dialog').first().click();
+
   await page.screenshot({path:'data/screenshots/capture-axes.png',animations:'disabled',fullPage:true});
   await category(page,'记录').click();assert.equal(await page.locator('.record-column .task').count(),2);assert.equal(await page.locator('.summary').isVisible(),true);
-  assert.deepEqual(await page.locator('.summary>div>span:first-child').allTextContents(),['记录总数','近七天记录数','今日记录数','待完善记录数']);
+  assert.deepEqual(await page.locator('.summary>div>span:first-child').allTextContents(),['记录总数','近七天记录数','今日记录数','待完善记录数']);assert.ok((await page.locator('.summary small').allTextContents()).every(Boolean));assert.equal(await page.locator('.record-column > h2').count(),2);assert.equal(await page.locator('.record-column .record-group').count(),2);
   await page.getByRole('checkbox',{name:'已完善：第一张照片',exact:true}).check();await page.waitForFunction(()=>tasks.find(t=>t.title==='第一张照片').status==='done');
   assert.equal(await page.locator('.record-column').nth(1).locator('.task').count(),1);
   await page.screenshot({path:'data/screenshots/capture-records.png',animations:'disabled',fullPage:true});
