@@ -45,7 +45,7 @@ $("axis-form").onsubmit=async event=>{
   catch(error){$("axis-error").textContent=error.message;}finally{$("axis-save").disabled=false;}
 };
 $("axis-delete").onclick=async()=>{
-  if(!editingAxis || !confirm(`删除轴线“${editingAxis.title}”？其中的卡片会保留。`))return;
+  if(!editingAxis || !await confirmAction(`删除轴线“${editingAxis.title}”？`,"其中的卡片会保留，只移除归轴关系。","删除轴线"))return;
   $("axis-delete").disabled=true;try{await api(`/api/axes/${editingAxis.id}`,"DELETE",{revision:editingAxis.revision});$("axis-dialog").close();lastPayload="";await refresh();}catch(error){$("axis-error").textContent=error.message;}finally{$("axis-delete").disabled=false;}
 };
 const axisAdd=element("dialog",null,"axis-add-dialog");axisAdd.id="axis-add-dialog";

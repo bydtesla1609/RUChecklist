@@ -33,6 +33,16 @@ function notice(message) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => $("toast").hidden = true, 4000);
 }
+function confirmAction(title,message,label="删除") {
+  const dialog=$("action-confirm-dialog"),session=syncSession;
+  if(dialog.open)return Promise.resolve(false);
+  $("action-confirm-title").textContent=title;$("action-confirm-message").textContent=message;$("action-confirm-accept").textContent=label;
+  dialog.returnValue="";
+  return new Promise(resolve=>{
+    dialog.addEventListener("close",()=>resolve(dialog.returnValue==="confirm" && session===syncSession),{once:true});
+    dialog.showModal();
+  });
+}
 async function api(path, method = "GET", payload, timeout = 15000) {
   const session=syncSession;
   const response = await fetch(path, {method, cache: "no-store", headers: {"Content-Type": "application/json"},
@@ -87,7 +97,7 @@ function fileRow(file, removable = false) {
   }
   if (removable) {
     const remove=element("button", "×"); remove.type="button"; remove.setAttribute("aria-label", `移除附件：${file.name}`); remove.disabled=uploading;
-    remove.onclick=()=>{ if(!confirm(`移除附件“${file.name}”？保存任务后生效。`))return; draftAttachments=draftAttachments.filter(value=>value.id!==file.id); renderAttachments(); }; row.append(remove);
+    remove.onclick=async()=>{ if(!await confirmAction("移除附件？",`“${file.name}”将从这张卡片中移除，保存后生效。`,"移除"))return; draftAttachments=draftAttachments.filter(value=>value.id!==file.id); renderAttachments(); }; row.append(remove);
   }
   return row;
 }
@@ -101,7 +111,7 @@ function addLinkRow(link = {label:"",url:""}) {
   const row=element("div", null, "link-edit-row"), label=element("input"), url=element("input"), remove=element("button", "×");
   label.placeholder="链接名称（选填）"; label.maxLength=100; label.value=link.label; label.setAttribute("aria-label", "链接名称"); label.className="link-label";
   url.type="url"; url.placeholder="https://…"; url.maxLength=4000; url.value=link.url; url.setAttribute("aria-label", "链接地址"); url.className="link-url";
-  remove.type="button"; remove.setAttribute("aria-label", "移除链接"); remove.onclick=()=>{if(confirm("移除这条链接？保存任务后生效。"))row.remove();}; row.append(label,url,remove); $("task-links").append(row);
+  remove.type="button"; remove.setAttribute("aria-label", "移除链接"); remove.onclick=async()=>{if(await confirmAction("移除这条链接？","保存卡片后生效。","移除"))row.remove();}; row.append(label,url,remove); $("task-links").append(row);
 }
 $("add-link").onclick=()=>addLinkRow();
 $("attachment-input").onchange=async () => {
@@ -248,7 +258,7 @@ function checklist(initial, persist, inDialog = false) {
         text.setAttribute("aria-label", `编辑待办：${item.text}`);
         text.onclick = () => { if(root.dataset.busy)return;editingId = item.id; draw(); markDirty(); list.querySelector(".todo-edit").focus(); };
         const remove = element("button", "×", "todo-action"); remove.type = "button"; remove.setAttribute("aria-label", `删除待办：${item.text}`);
-        remove.onclick = () => { if(root.dataset.busy)return;if(!confirm(`删除待办“${item.text}”？`))return; items = items.filter(value => value.id !== item.id); commit(); };
+        remove.onclick = async () => { if(root.dataset.busy)return;if(!await confirmAction("删除这条待办？",item.text))return;if(root.dataset.busy || !root.isConnected)return;items = items.filter(value => value.id !== item.id); commit(); };
         row.append(text, remove);
       }
       if (editingId && editingId !== item.id) row.querySelectorAll("button,input").forEach(node => node.disabled = true);
@@ -768,7 +778,7 @@ function renderWebsiteLinks() {
     const edit=element("button","编辑","text-button"),remove=element("button","移除","text-button");
     edit.type=remove.type="button";edit.disabled=remove.disabled=websiteBusy;
     edit.setAttribute("aria-label",`编辑网站：${websiteName(link)}`);remove.setAttribute("aria-label",`移除网站：${websiteName(link)}`);
-    edit.onclick=()=>openWebsiteInput(index);remove.onclick=()=>{if(confirm(`移除网站“${websiteName(link)}”？将停止同步此网站，已导入的卡片会保留。`))saveWebsiteLinks(sourceLinksState.filter((_,i)=>i!==index).map(link=>link.url));};
+    edit.onclick=()=>openWebsiteInput(index);remove.onclick=async()=>{if(await confirmAction("移除网站？",`将停止同步“${websiteName(link)}”，已导入的卡片会保留。`,"移除"))saveWebsiteLinks(sourceLinksState.filter(item=>item.url!==link.url).map(link=>link.url));};
     row.append(text);
     if(link.generic){const setup=element("button","识别设置","secondary");setup.type="button";setup.setAttribute("aria-label",`识别设置：${link.name}`);setup.onclick=()=>setupGeneric(link).catch(error=>{$("source-error").textContent=error.message;});row.append(setup);}
     row.append(edit,remove);return row;
@@ -884,7 +894,7 @@ function maybeLoginReminder() { if(typeof maybeMessageBoard==="function")maybeMe
 $("expired-open-sources").onclick=()=>{$("login-expired-dialog").close();$("sources-button").click();setSyncStep(5);};
 document.querySelectorAll("dialog").forEach(dialog=>dialog.addEventListener("close",()=>queueMicrotask(maybeLoginReminder)));
 $("cloud-revoke").onclick=async()=>{
-  if(!confirm("关闭云端同步？保存的网站登录状态会删除，已导入的卡片会保留。"))return;
+  if(!await confirmAction("关闭云端同步？","保存的网站登录状态会删除，已导入的卡片会保留。","关闭同步"))return;
   try{await api("/api/cloud","DELETE");$("cloud-panel").replaceChildren();$("cloud-authorize").hidden=false;await checkCloud();}catch(error){$("source-error").textContent=error.message;}
 };
 function renderSources() {
@@ -918,11 +928,11 @@ function renderSources() {
   }));
 }
 async function refresh() {
-  if (hasDraft() || document.querySelector(".checklist[data-busy]")) return;
+  if (hasDraft() || $("action-confirm-dialog").open || document.querySelector(".checklist[data-busy]")) return;
   const sequence = ++refreshSequence;
   try {
     const data = await api("/api/board");
-    if (sequence !== refreshSequence || hasDraft() || document.querySelector(".checklist[data-busy]")) return;
+    if (sequence !== refreshSequence || hasDraft() || $("action-confirm-dialog").open || document.querySelector(".checklist[data-busy]")) return;
     $("login").hidden = true; $("workspace").hidden = false;
     tasks = data.tasks;if(axisLayoutRevision!==(data.axis_layout?.revision || 0) && !axisScene?.dirty)resetAxisScene();savedAxisLayout=data.axis_layout?.layout || null;axisLayoutRevision=data.axis_layout?.revision || 0; axes=data.axes || [];axisItems=data.axis_items || [];sources = data.sources; timetables=data.timetables || [];
     if($("sources-dialog").open && collectorState)checkCollector();

@@ -38,7 +38,7 @@ try{
   await phone.locator('#messages-read').click();await phone.locator('#messages-dialog').waitFor({state:'hidden'});if(await phone.locator('#demo-dialog').isVisible())await phone.locator('#demo-skip').click();
   assert.equal(await phone.locator('.sidebar-bottom > button').count(),3);
   assert.equal(await phone.locator('#user-card-name').textContent(),'student');
-  assert.equal(await phone.locator('#app-version').textContent(),'v3.1.2');
+  assert.equal(await phone.locator('#app-version').textContent(),'v3.1.3');
   assert.deepEqual(await phone.locator('#count-open,#count-soon,#count-overdue,#count-done').allTextContents(),['4','4','0','1']);
   assert.equal(await phone.locator('#categories button').first().locator('.count').textContent(),'4');
   await phone.locator('#user-menu-toggle').click();await phone.locator('#user-menu').waitFor();
@@ -65,8 +65,8 @@ try{
   // Deletion is cancellable; the server keeps the task until explicit confirmation.
   await card.locator('.delete-task').click();await phone.locator('#delete-dialog .close-dialog').click();assert.equal(await card.count(),1);
   await card.locator('.edit-task').click();await phone.locator('#add-link').click();const link=phone.locator('.link-edit-row');
-  phone.once('dialog',d=>d.dismiss());await phone.getByRole('button',{name:'移除链接',exact:true}).click();assert.equal(await link.count(),1);
-  phone.once('dialog',d=>d.accept());await phone.getByRole('button',{name:'移除链接',exact:true}).click();assert.equal(await link.count(),0);
+  await phone.getByRole('button',{name:'移除链接',exact:true}).click();await phone.locator('#action-confirm-cancel').click();assert.equal(await link.count(),1);
+  await phone.getByRole('button',{name:'移除链接',exact:true}).click();await phone.locator('#action-confirm-accept').click();await link.waitFor({state:'detached'});assert.equal(await link.count(),0);
   assert.deepEqual(errors,[]);console.log('PASS: mobile reminders, independent announcement receipts, feedback/replies, admin mobile navigation, archive restore and cancelable removals.');
 }finally{await browser.close();server.close();db.close();}
 

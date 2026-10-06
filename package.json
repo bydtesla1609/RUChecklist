@@ -1,6 +1,6 @@
 {
   "name": "rucapture",
-  "version": "3.1.2",
+  "version": "3.1.3",
   "private": true,
   "type": "module",
   "engines": {
@@ -23,6 +23,7 @@
     "test:capture-ui": "node capture-ui-test.mjs",
     "test:public-ui": "node public-ui-test.mjs",
     "test:sync-guide": "node sync-guide-ui-test.mjs",
+    "test:confirmation-ui": "node confirmation-ui-test.mjs",
     "build:public": "node build-pages.mjs --public"
   }
 }

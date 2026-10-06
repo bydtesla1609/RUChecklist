@@ -79,7 +79,7 @@ async function loadThreads(){
 }
 async function selectChat(target){
   if(chatBusy)return;
-  if(chatTarget!==target && $("chat-input").value.trim() && !confirm("切换会话并放弃当前未发送内容？"))return;
+  if(chatTarget!==target && $("chat-input").value.trim() && !await confirmAction("切换会话？","当前未发送的内容将被丢弃。","放弃并切换"))return;
   if(chatTarget!==target){$("chat-input").value="";chatPending=null;}
   chatTarget=target;chatMessages=[];chatMore=false;$("chat-bubbles").replaceChildren();$("chat-error").textContent="";$("feedback-dialog").dataset.active="true";
   $("chat-send").textContent=target==="announcements"?"发布公告":"发送";$("chat-input").placeholder=target==="announcements"?"输入公告，发布后其他用户打开网站时会收到提醒…":"反馈建议、遇到的问题，或补充说明…";

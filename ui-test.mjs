@@ -98,7 +98,7 @@ try {
   await card.getByRole("textbox", {name: "编辑待办事项"}).fill("读论文并标注");
   await saved(page, () => card.getByRole("button", {name: "确认待办修改"}).click());
   await saved(page, () => card.getByRole("checkbox", {name: "完成：读论文并标注", exact: true}).check());
-  await saved(page, () => card.getByRole("button", {name: "删除待办：补充参考资料"}).click());
+  await saved(page, async () => {await card.getByRole("button", {name: "删除待办：补充参考资料"}).click();await page.locator("#action-confirm-accept").click();});
   await saved(page, () => card.locator(".drag-handle").first().press("ArrowDown"));
   assert.deepEqual(await card.locator(".todo-text").allTextContents(), ["整理笔记", "读论文并标注"]);
   await saved(page, async () => {
