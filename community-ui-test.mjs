@@ -38,7 +38,7 @@ try{
   await phone.locator('#messages-read').click();await phone.locator('#messages-dialog').waitFor({state:'hidden'});if(await phone.locator('#demo-dialog').isVisible())await phone.locator('#demo-skip').click();
   assert.equal(await phone.locator('.sidebar-bottom > button').count(),3);
   assert.equal(await phone.locator('#user-card-name').textContent(),'student');
-  assert.equal(await phone.locator('#app-version').textContent(),'v3.1.3');
+  assert.equal(await phone.locator('#app-version').textContent(),'v3.1.4');
   assert.deepEqual(await phone.locator('#count-open,#count-soon,#count-overdue,#count-done').allTextContents(),['4','4','0','1']);
   assert.equal(await phone.locator('#categories button').first().locator('.count').textContent(),'4');
   await phone.locator('#user-menu-toggle').click();await phone.locator('#user-menu').waitFor();

@@ -129,3 +129,8 @@ dialog[open]:not(#demo-dialog){animation:surface-arrive .2s cubic-bezier(.2,.7,.
 #sources-dialog{font-size:16px;line-height:1.7}#sources-dialog button,#sources-dialog .extension-download,#sources-dialog .collector-toggle,#collector-state{font-size:16px}#sources-dialog .hint,#sources-dialog .source-row p,#sources-dialog .extension-update summary,#sources-dialog .supported-sites summary,#sources-dialog .optional{font-size:14px}#sources-dialog .step-body ol{font-size:15px}#sources-dialog .website-row strong{font-size:16px}#sources-dialog .website-row a{font-size:14px}#sources-dialog .sync-step-actions{position:sticky;bottom:-1px;padding:14px 0 0;background:var(--panel)}
 
 #action-confirm-dialog{width:460px}#action-confirm-dialog .dialog-heading{align-items:flex-start;gap:18px}#action-confirm-title{font-size:1.25rem;line-height:1.5;overflow-wrap:anywhere}#action-confirm-message{font-size:1rem;line-height:1.75;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere;max-height:40dvh;overflow-y:auto}#action-confirm-dialog .dialog-actions{gap:12px;margin-top:26px}#action-confirm-dialog .dialog-actions button{min-width:90px;min-height:44px;font-size:1rem}#action-confirm-dialog::backdrop{background:#080b1da6;backdrop-filter:blur(3px)}
+
+.dialog-notice{margin:16px 0 0;padding:12px 16px;border:1px solid #a79bff45;border-radius:12px;background:#a79bff14;color:#dfd8ff;font-size:15px;line-height:1.65;overflow-wrap:anywhere;scroll-margin-block:100px}
+.day-empty>p{margin:0}.empty-add{margin-top:18px;color:var(--accent);min-height:44px}
+.select-option.select-create-axis{margin-top:5px;border-top:1px solid #b1a2ff40;border-radius:0 0 7px 7px;color:var(--accent);font-weight:600}
+.select-menu-above{top:auto;bottom:calc(100% + 6px)}

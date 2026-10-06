@@ -10,7 +10,7 @@
 </head>
 <body>
 <section id="login" class="login" hidden>
-  <header class="landing-header"><a href="/" class="landing-brand"><img src="/static/icon.svg" width="36" height="36" alt=""><strong>RUCapture</strong></a><span class="landing-edition">开放体验 · v3.1.3</span></header>
+  <header class="landing-header"><a href="/" class="landing-brand"><img src="/static/icon.svg" width="36" height="36" alt=""><strong>RUCapture</strong></a><span class="landing-edition">开放体验 · v3.1.4</span></header>
   <div class="landing-grid"><div class="landing-story">
     <p class="landing-kicker"><span></span> 记录与规划，在同一个空间</p>
     <h1>留住此刻。<br><em>向下一步出发。</em></h1>
@@ -37,7 +37,7 @@
 </section>
 <div id="workspace" class="workspace" hidden>
   <aside class="sidebar">
-    <div class="brand-row"><a class="brand" href="/" aria-label="RUCapture首页"><span class="brand-icon" aria-hidden="true"><img src="/static/icon.svg" alt="" width="56" height="56"></span><span class="brand-copy"><span class="wordmark"><b>RU</b>Capture</span><small id="app-version">v3.1.3</small></span></a><button id="sidebar-toggle" class="sidebar-toggle" aria-label="收起侧栏" aria-expanded="true" title="收起侧栏"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="4"/><path class="sidebar-divider" d="M12 4v16"/></svg></button></div>
+    <div class="brand-row"><a class="brand" href="/" aria-label="RUCapture首页"><span class="brand-icon" aria-hidden="true"><img src="/static/icon.svg" alt="" width="56" height="56"></span><span class="brand-copy"><span class="wordmark"><b>RU</b>Capture</span><small id="app-version">v3.1.4</small></span></a><button id="sidebar-toggle" class="sidebar-toggle" aria-label="收起侧栏" aria-expanded="true" title="收起侧栏"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="4"/><path class="sidebar-divider" d="M12 4v16"/></svg></button></div>
     <nav id="categories" aria-label="校园板块"></nav>
     <div class="sidebar-bottom">
       <button id="demo-button" class="nav-button" aria-label="使用演示"><span>使用演示</span></button>
@@ -72,7 +72,7 @@
     <div id="record-time-field" hidden><label for="record-time">时间 <span class="required">必填</span></label><input id="record-time" type="datetime-local"></div><p class="hint">北京时间</p>
     <label for="task-location">地点 <span class="optional">选填</span></label><input id="task-location" maxlength="300" placeholder="例如：明德楼 302 / 图书馆 / 线上">
     <label for="task-content">内容 <span class="optional">选填</span></label><textarea id="task-content" maxlength="10000" rows="4" placeholder="记录备忘、相关安排或补充说明"></textarea>
-    <label for="task-axis">归轴 <span class="optional">选填</span></label><select id="task-axis"><option value="">不归轴</option></select>
+    <label for="task-axis">所属轴线 <span class="optional">选填</span></label><select id="task-axis"><option value="">（无）</option></select>
     <div id="schedule-fields" hidden><label for="schedule-person" id="schedule-person-label">教师 <span class="optional">选填</span></label><input id="schedule-person" maxlength="300" placeholder="选填"><label for="schedule-seat">座位号 <span class="optional">选填</span></label><input id="schedule-seat" maxlength="300"></div><div class="field-heading"><span>待办事项 <span class="optional">选填</span></span><span class="hint">拖动 ⋮⋮ 排序</span></div>
     <div id="task-todos"></div>
     <div class="resource-heading"><span>附件 <span class="optional">选填</span></span><span id="file-limit-hint" class="hint">单个文件 ≤ 10 MB</span></div>
@@ -93,6 +93,15 @@
   <div class="date-range"><div><label for="axis-start">开始时间 <span class="optional">选填</span></label><input id="axis-start" type="datetime-local"></div><div><label for="axis-end">结束时间 <span class="optional">选填</span></label><input id="axis-end" type="datetime-local"></div></div>
   <div id="axis-members" class="axis-members"></div><p id="axis-error" class="error" role="alert"></p>
   <div class="dialog-actions"><button id="axis-delete" type="button" class="text-button">删除轴线</button><button type="button" class="secondary close-dialog">取消</button><button id="axis-save" class="primary">保存轴线</button></div></form>
+</dialog>
+<dialog id="new-axis-dialog" aria-labelledby="new-axis-heading">
+  <form id="new-axis-form"><div class="dialog-heading"><h2 id="new-axis-heading">新增轴线</h2><button type="button" class="icon-button close-dialog" aria-label="关闭新增轴线">×</button></div>
+    <label for="new-axis-title">标题 <span class="required">必填</span></label><input id="new-axis-title" required maxlength="200" placeholder="这条轴线叫什么？">
+    <label for="new-axis-content">内容 <span class="optional">选填</span></label><textarea id="new-axis-content" rows="3" maxlength="10000" placeholder="目标、计划或几句说明"></textarea>
+    <div class="date-range"><div><label for="new-axis-start">开始时间 <span class="optional">选填</span></label><input id="new-axis-start" type="datetime-local"></div><div><label for="new-axis-end">结束时间 <span class="optional">选填</span></label><input id="new-axis-end" type="datetime-local"></div></div>
+    <p id="new-axis-error" class="error" role="alert"></p>
+    <div class="dialog-actions"><button type="button" class="secondary close-dialog">取消</button><button id="new-axis-save" class="primary" type="submit">创建轴线</button></div>
+  </form>
 </dialog>
 <dialog id="sources-dialog">
   <div class="dialog-heading"><div><h2>连接你的网站</h2></div><button class="icon-button close-dialog" aria-label="关闭">×</button></div>

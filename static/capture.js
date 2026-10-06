@@ -4,9 +4,25 @@ const cardTime=task=>task.category==="作业"?task.due_at:task.starts_at;
 const chronological=(a,b)=>(cardTime(a)||"9999").localeCompare(cardTime(b)||"9999") || a.id.localeCompare(b.id);
 function resetAxisScene(){axisScene=null;}
 function fillAxisSelect(value){
-  $("task-axis").replaceChildren(...[{id:"",title:"不归轴"},...axes].map(axis=>{const option=element("option",axis.title);option.value=axis.id;return option;}));
+  const create=element("option","＋ 新增轴线");create.value="create-axis";create.dataset.action="create-axis";
+  $("task-axis").replaceChildren(...[{id:"",title:"（无）"},...axes].map(axis=>{const option=element("option",axis.title);option.value=axis.id;return option;}),create);
   $("task-axis").value=value || "";enhanceSelect($("task-axis"));
 }
+function createAxisFromCard(){
+  $("new-axis-form").reset();$("new-axis-error").textContent="";$("new-axis-dialog").showModal();
+}
+$("new-axis-dialog").addEventListener("cancel",event=>{if($("new-axis-save").disabled)event.preventDefault();});
+$("new-axis-form").onsubmit=async event=>{
+  event.preventDefault();const session=syncSession,form=$("new-axis-form"),controls=form.querySelectorAll("button");
+  controls.forEach(button=>button.disabled=true);$("new-axis-error").textContent="";
+  try{
+    const axis=await api("/api/axes","POST",{title:$("new-axis-title").value,content:$("new-axis-content").value,starts_at:inputTime($("new-axis-start").value),ends_at:inputTime($("new-axis-end").value)});
+    if(session!==syncSession)return;
+    axes=axes.filter(item=>item.id!==axis.id);axes.push(axis);fillAxisSelect(axis.id);$("new-axis-dialog").close();lastPayload="";
+    await refresh();
+  }catch(error){if(session===syncSession)$("new-axis-error").textContent=error.message;}
+  finally{controls.forEach(button=>button.disabled=false);}
+};
 function renderRecords(records){
   $("board").className="record-board";
   const ordered=[...records].sort((a,b)=>-chronological(a,b));
@@ -14,7 +30,7 @@ function renderRecords(records){
     const section=element("section",null,`column record-column ${state}`),items=ordered.filter(task=>(task.status==="done"?"done":"todo")===state),heading=element("h2",title);
     heading.append(element("span",String(items.length),"count"));section.append(heading);
     const list=element("div",null,"schedule-list record-group");
-    if(items.length)list.append(...items.map(card));else list.append(element("p",`暂无${title}的记录`,"day-empty"));section.append(list);
+    if(items.length)list.append(...items.map(card));else list.append(emptySchedule(title,"记录",state==="todo"));section.append(list);
     return section;
   }));
   const today=localInput(new Date()).slice(0,10),week=new Date();week.setDate(week.getDate()-6);const since=localInput(week).slice(0,10);
@@ -141,10 +157,21 @@ function enhanceSelect(select){
   const wrap=element("div",null,"custom-select"),button=element("button",null,"select-trigger"),menu=element("div",null,"select-menu");button.type="button";button.setAttribute("aria-haspopup","listbox");button.setAttribute("aria-expanded","false");menu.hidden=true;menu.setAttribute("role","listbox");
   select.before(wrap);wrap.append(select,button,menu);
   const label=()=>select.getAttribute("aria-label") || document.querySelector(`label[for="${select.id}"]`)?.textContent.trim() || "选择";
-  const sync=()=>{const arrow=element("span",null,"select-arrow");arrow.setAttribute("aria-hidden","true");button.replaceChildren(element("span",select.selectedOptions[0]?.textContent || "请选择","select-value"),arrow);button.disabled=select.disabled;button.setAttribute("aria-label",label());menu.replaceChildren(...[...select.options].map(option=>{const entry=element("button",option.textContent,"select-option");entry.type="button";entry.setAttribute("role","option");entry.setAttribute("aria-selected",String(option.selected));entry.disabled=option.disabled;entry.onclick=()=>{select.value=option.value;select.dispatchEvent(new Event("change",{bubbles:true}));close();sync();button.focus();};return entry;}));};
+  const sync=()=>{const arrow=element("span",null,"select-arrow");arrow.setAttribute("aria-hidden","true");button.replaceChildren(element("span",select.selectedOptions[0]?.textContent || "请选择","select-value"),arrow);button.disabled=select.disabled;button.setAttribute("aria-label",label());menu.replaceChildren(...[...select.options].map(option=>{
+    const action=option.dataset.action==="create-axis",entry=element("button",option.textContent,`select-option${action?" select-create-axis":""}`);
+    entry.type="button";entry.setAttribute("role","option");entry.setAttribute("aria-selected",String(option.selected));entry.disabled=option.disabled;
+    if(action)entry.setAttribute("aria-haspopup","dialog");
+    entry.onclick=()=>{close();button.focus();if(action){createAxisFromCard();return;}select.value=option.value;select.dispatchEvent(new Event("change",{bubbles:true}));sync();};return entry;
+  }));};
   const close=()=>{menu.hidden=true;button.setAttribute("aria-expanded","false");};
-  button.onclick=()=>{const open=menu.hidden;document.querySelectorAll(".select-menu").forEach(node=>{node.hidden=true;node.parentElement.querySelector(".select-trigger").setAttribute("aria-expanded","false");});menu.hidden=!open;button.setAttribute("aria-expanded",String(open));if(open){sync();menu.querySelector('[aria-selected="true"]')?.focus();}};
-  wrap.onkeydown=event=>{if(event.key==="Escape"){event.preventDefault();event.stopPropagation();close();button.focus();}if(["ArrowDown","ArrowUp","Home","End"].includes(event.key)){event.preventDefault();menu.hidden=false;button.setAttribute("aria-expanded","true");const choices=[...menu.querySelectorAll("button:not(:disabled)")],index=choices.indexOf(document.activeElement);choices[event.key==="Home"?0:event.key==="End"?choices.length-1:Math.max(0,Math.min(choices.length-1,index+(event.key==="ArrowDown"?1:-1)))]?.focus();}};
+  const placeMenu=()=>{
+    const rect=button.getBoundingClientRect(),dialog=select.closest("dialog")?.getBoundingClientRect();
+    const above=rect.top-Math.max(8,dialog?.top || 0)-8,below=Math.min(innerHeight-8,dialog?.bottom || innerHeight)-rect.bottom-8;
+    const up=below<Math.min(menu.scrollHeight,260) && above>below;
+    menu.classList.toggle("select-menu-above",up);menu.style.maxHeight=`${Math.max(44,Math.min(260,up?above:below))}px`;
+  };
+  button.onclick=()=>{const open=menu.hidden;document.querySelectorAll(".select-menu").forEach(node=>{node.hidden=true;node.parentElement.querySelector(".select-trigger").setAttribute("aria-expanded","false");});menu.hidden=!open;button.setAttribute("aria-expanded",String(open));if(open){sync();placeMenu();menu.querySelector('[aria-selected="true"]')?.focus({preventScroll:true});}};
+  wrap.onkeydown=event=>{if(event.key==="Escape"){event.preventDefault();event.stopPropagation();close();button.focus();}if(["ArrowDown","ArrowUp","Home","End"].includes(event.key)){event.preventDefault();menu.hidden=false;button.setAttribute("aria-expanded","true");placeMenu();const choices=[...menu.querySelectorAll("button:not(:disabled)")],index=choices.indexOf(document.activeElement);choices[event.key==="Home"?0:event.key==="End"?choices.length-1:Math.max(0,Math.min(choices.length-1,index+(event.key==="ArrowDown"?1:-1)))]?.focus();}};
   wrap.addEventListener("focusout",event=>{if(!wrap.contains(event.relatedTarget))close();});select.addEventListener("change",sync);select.addEventListener("capture-refresh",sync);sync();
 }
 document.addEventListener("click",event=>{document.querySelectorAll(".custom-select").forEach(wrap=>{if(!event.composedPath().includes(wrap)){wrap.querySelector(".select-menu").hidden=true;wrap.querySelector(".select-trigger").setAttribute("aria-expanded","false");}});});

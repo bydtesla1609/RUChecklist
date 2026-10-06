@@ -28,10 +28,18 @@ function element(tag, text, className) {
   return node;
 }
 function notice(message) {
-  $("toast").textContent = message;
-  $("toast").hidden = false;
+  document.querySelectorAll(".dialog-notice, #toast").forEach(node=>node.hidden=true);
+  const dialog=document.activeElement?.closest("dialog[open]");
+  let output=$("toast");
+  if(dialog){
+    output=dialog.querySelector(".dialog-notice") || element("p",null,"dialog-notice");
+    output.setAttribute("role","status");
+    (dialog.querySelector(".guide-step:not([hidden]) .step-body") || dialog.querySelector("form") || dialog).append(output);
+  }
+  output.textContent=message;output.hidden=false;
+  if(dialog)output.scrollIntoView({block:"nearest",behavior:"smooth"});
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => $("toast").hidden = true, 4000);
+  toastTimer=setTimeout(()=>output.hidden=true,4000);
 }
 function confirmAction(title,message,label="删除") {
   const dialog=$("action-confirm-dialog"),session=syncSession;
@@ -538,6 +546,11 @@ function renderTimetable(courses) {
   });
   grid.append(body);scroll.append(grid);panel.append(scroll,element("p","左右滑动查看完整课表 · 点击“查看教学大纲”进入教务系统","timetable-hint"));
 }
+function emptySchedule(label,category,canAdd) {
+  const empty=element("div",null,"day-empty");empty.append(element("p",`暂无${label}的${category}`));
+  if(canAdd){const add=element("button",`＋ 添加${category}`,"text-button empty-add");add.type="button";add.onclick=()=>{newTaskAxis=null;newTaskCategory=category;openTask();};empty.append(add);}
+  return empty;
+}
 function renderSchedule(visible) {
   const root=$("board"),today=localInput(new Date()).slice(0,10),now=Date.now();
   const sorted=[...visible].sort((a,b)=>(a.starts_at || "9999").localeCompare(b.starts_at || "9999") || a.id.localeCompare(b.id));
@@ -552,7 +565,7 @@ function renderSchedule(visible) {
     const column=element("section",null,`column ${state}`),heading=element("h2",label);
     heading.append(element("span",String(items.length),"count"));column.append(heading);
     const list=element("div",null,`schedule-list ${categoryFilter==="考试"?"exam-group":categoryFilter==="会议"?"meeting-group":"activity-group"}`);
-    list.append(...items.map(card));if(!items.length)list.append(element("p",`暂无${label}的${categoryFilter}`,"day-empty"));column.append(list);columns.append(column);
+    list.append(...items.map(card));if(!items.length)list.append(emptySchedule(label,categoryFilter,state==="todo" && ["活动","会议"].includes(categoryFilter)));column.append(list);columns.append(column);
   }
   root.append(columns);
 }
@@ -813,7 +826,7 @@ $("source-links-form").onsubmit=event=>{
 };
 $("collector-recheck").onclick=async()=>{
   await checkCollector();
-  if(collectorState){if(syncStepStates()[0])notice("已检测到新版扩展，点击“下一步”继续。");}
+  if(collectorState)notice(syncStepStates()[0]?"扩展已就绪，点击“下一步”继续。":"扩展需要更新，请安装后重新检测。");
   else {sessionStorage.setItem("resume-setup","1");location.reload();}
 };
 $("copy-extension-page").onclick=async()=>{const url=/Edg\//.test(navigator.userAgent)?"edge://extensions":"chrome://extensions";try{await navigator.clipboard.writeText(url);notice("已复制，请粘贴到浏览器地址栏打开");}catch{notice(`请复制 ${url} 到浏览器地址栏`);}};
@@ -1038,13 +1051,14 @@ $("confirm-delete").onclick = async () => {
   finally { $("confirm-delete").disabled = false; }
 };
 const demoSteps=[
-  {category:"全部",target:"#board",title:"总览：从日期找到任务",text:"在日历中按日期查看安排，或切换轴线整理目标与记录。课程继续显示在总览。"},
+  {category:"全部",view:"calendar",target:"#board",title:"日历视图：按日期查看安排",text:"选择日期，查看当天的任务、课程和记录。点击卡片可以编辑详情。"},
+  {category:"全部",view:"axes",target:"#board",title:"轴线视图：串起目标与记录",text:"添加轴线，把卡片按时间串在一起。点击节点编辑，拖动调整位置，完成后保存布局；末尾的加号可以添加卡片。"},
   {category:"作业",target:"#board",title:"作业：进度一目了然",text:"待开始、进行中、已完成分栏展示。卡片上的待办事项可以增删、修改和拖动排序；其他详情通过“编辑”修改。"},
   {category:"记录",target:"#board",title:"记录",text:"记下做过的事和当时的感受。记录也会出现在总览。"},
   {target:"#add-task",title:"随时补充自己的安排",text:"填写标题和时间，再按需要补充地点、内容、待办、附件和链接。"},
   {target:"#sources-button",title:"网站配置在这里",text:"点击侧栏的“来源与同步”，安装并连接同步扩展，就可以接入自己的校园网站。下一步带你查看配置位置。"},
-  {target:"#add-source-link",sources:true,title:"一个网站，一条配置",text:"点击“添加网站”，粘贴列表页面的网址并确认。上方五个点显示配置进度，可随时点回之前的步骤。"},
-  {target:"#cloud-settings > h3",sources:true,title:"云端同步：电脑关机也能更新",text:"在第 4 步直接开启云端同步，电脑关机后也能更新。微人大、YOJ 和通用识别网站仍需浏览器运行。完成后会进入第 5 步查看结果。"},
+  {target:"#add-source-link",sources:true,title:"一个网站，一条配置",text:"点击“添加网站”，粘贴列表页面的网址并确认。上方五个点显示进度，完成每一步后点击“下一步”继续。"},
+  {target:"#cloud-settings > h3",sources:true,title:"云端同步：电脑关机也能更新",text:"在第 4 步直接开启云端同步，电脑关机后也能更新。微人大、YOJ 和通用识别网站仍需浏览器运行。点击“下一步”后执行同步。"},
   {target:"#user-menu-toggle",title:"账户菜单：消息与归档",text:"点击头像和用户名，打开消息看板、归档处、反馈与账号设置。可以随时手动归档；已完成任务满 7 天也会自动归档，课程除外。归档后可查看、恢复或删除。"}
 ];
 let demoIndex=0,demoOriginal=null;
@@ -1067,6 +1081,7 @@ async function showDemoStep() {
     setSyncStep(step.target==="#add-source-link"?3:4);
   }else {
     $("sources-dialog").close();
+    if(step.view)overviewView=step.view;
     if(step.category){categoryFilter=step.category;render();}
   }
   $("demo-title").textContent=step.title;$("demo-description").textContent=step.text;$("demo-progress").textContent=`${demoIndex+1} / ${demoSteps.length}`;
@@ -1077,12 +1092,12 @@ async function showDemoStep() {
   document.querySelector(step.target)?.scrollIntoView({block:step.sources?"center":"nearest",behavior:"instant"});
   positionDemo();requestAnimationFrame(positionDemo);$("demo-next").focus({preventScroll:true});
 }
-function startDemo() {if($("workspace").hidden)return;demoIndex=0;demoOriginal={category:categoryFilter,scroll:scrollY};$("demo-dialog").showModal();showDemoStep();}
+function startDemo() {if($("workspace").hidden)return;demoIndex=0;demoOriginal={category:categoryFilter,view:overviewView,scroll:scrollY};$("demo-dialog").showModal();showDemoStep();}
 function endDemo() {
   try{localStorage.setItem(demoKey(),"seen");}catch{}
   $("demo-dialog").close();$("sources-dialog").close();
   loadSyncProgress();
-  if(demoOriginal){categoryFilter=demoOriginal.category;render();window.scrollTo({top:demoOriginal.scroll,behavior:"instant"});demoOriginal=null;}
+  if(demoOriginal){categoryFilter=demoOriginal.category;overviewView=demoOriginal.view;render();window.scrollTo({top:demoOriginal.scroll,behavior:"instant"});demoOriginal=null;}
   $("demo-button").focus({preventScroll:true});
 }
 function maybeDemo() {if(typeof maybeMessageBoard==="function")maybeMessageBoard();let seen=false;try{seen=localStorage.getItem(demoKey())==="seen";}catch{}if(!seen&&!document.querySelector("dialog[open]")&&!$("workspace").hidden)startDemo();}
